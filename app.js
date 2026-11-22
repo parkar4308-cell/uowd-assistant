@@ -1,436 +1,1171 @@
 (function () {
   'use strict';
-  var MAX_MESSAGES = 20;          // DOM only, nothing persisted
-  var SLOW_MS = 5000;             // show "Stop waiting" after this
-  var TIMEOUT_MS = 30000;         // give up after this (server may take ~20 s with AI on)
-  var SOURCES_SHOWN = 3;
-  var messages = [];
-  var busy = false, asked = false, current = null;
+
+  var D = window.EduConnectData;
+  if (!D) return;
+
   var $ = function (id) { return document.getElementById(id); };
-  var thread = $('thread'), chipsEl = $('chips'), form = $('form'), input = $('question'),
-      sendBtn = $('send'), statusEl = $('status'), emptyEl = $('empty'), moreBtn = $('moreBtn'),
-      suggestEl = chipsEl.parentNode;
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var finePointer = window.matchMedia && window.matchMedia('(pointer: fine)').matches;
 
-  /* ---------- helpers (all server text goes in via textContent) ---------- */
+  /* ---------- Mutable Demo State (Live Interactive Simulation) ---------- */
+  var state = {
+    activeTab: 'assistant',
+    activePersona: 'student',
+    corpusMode: 'educonnect', // 'educonnect' | 'uowd'
+    selectedCategory: null,
+    busy: false,
+    asked: false,
+    nextTicketNum: 4093,
+    ticketFilter: 'all',
+    kmsDataset: 'educonnect', // 'educonnect' | 'uowd'
+    kmsSearch: '',
+    kmsStatus: 'all',
+    kmsCategory: 'all',
+    uowdPagesCache: null,
+    uowdChips: [
+      'How much are the tuition fees?',
+      'What are the English language requirements?',
+      'What scholarships are available?',
+      'How do I apply for an undergraduate degree?',
+      'When does the next semester start?',
+      'Does UOWD help with student visas?'
+    ],
+    articles: D.ARTICLES.map(function (a) { return Object.assign({}, a, { bullets: (a.bullets || []).slice() }); }),
+    tickets: D.INITIAL_TICKETS.map(function (t) { return Object.assign({}, t); }),
+    auditLog: D.INITIAL_AUDIT.map(function (e) { return Object.assign({}, e); }),
+    messages: []
+  };
+
+  /* ---------- DOM References ---------- */
+  var personaBar = $('personaBar'),
+      personaTag = $('personaTag'),
+      openTicketBadge = $('openTicketBadge'),
+      conflictBadge = $('conflictBadge'),
+      corpusBadge = $('corpusBadge'),
+      modeEduBtn = $('modeEduConnect'),
+      modeUowdBtn = $('modeUowd'),
+      engineHint = $('engineHint'),
+      categoryGrid = $('categoryGrid'),
+      clearCatBtn = $('clearCatBtn'),
+      suggestTitle = $('suggestTitle'),
+      suggestSub = $('suggestSub'),
+      chipsEl = $('chips'),
+      moreBtn = $('moreBtn'),
+      clearThreadBtn = $('clearThreadBtn'),
+      statusEl = $('status'),
+      thread = $('thread'),
+      form = $('form'),
+      input = $('question'),
+      sendBtn = $('send'),
+      ticketKpis = $('ticketKpis'),
+      ticketList = $('ticketList'),
+      kmsKpis = $('kmsKpis'),
+      kmsBtnEdu = $('kmsBtnEdu'),
+      kmsBtnUowd = $('kmsBtnUowd'),
+      kmsSearch = $('kmsSearch'),
+      kmsStatusFilter = $('kmsStatusFilter'),
+      kmsCatFilter = $('kmsCatFilter'),
+      kmsList = $('kmsList'),
+      pilotKpiGrid = $('pilotKpiGrid'),
+      auditCountBadge = $('auditCountBadge'),
+      auditTableBody = $('auditTableBody'),
+      roadmapGrid = $('roadmapGrid'),
+      qrModal = $('qrModal'),
+      qrOpenBtn = $('qrOpenBtn'),
+      qrCloseBtn = $('qrCloseBtn'),
+      qrCloseBtnBottom = $('qrCloseBtnBottom'),
+      modalQrCanvas = $('modalQrCanvas'),
+      modalQrUrl = $('modalQrUrl'),
+      articleModal = $('articleModal'),
+      artCloseBtn = $('artCloseBtn'),
+      artModalId = $('artModalId'),
+      artModalTitle = $('artModalTitle'),
+      artModalBody = $('artModalBody');
+
+  /* ---------- Safe DOM Helpers ---------- */
   function el(tag, cls, text) {
     var n = document.createElement(tag);
     if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
+    if (text != null) n.textContent = String(text);
     return n;
   }
-  var SVGNS = 'http://www.w3.org/2000/svg';
-  var ICONS = {
-    copy: 'M9 9h10v11H9zM5 15V4h10',
-    check: 'M5 12.5l4.5 4.5L19 7.5',
-    up: 'M7 11v9H4v-9zM7 11l4-8c1.7 0 2.6 1 2.3 2.7L12.8 9H19c1.2 0 2 1 1.8 2.2l-1.3 7A2 2 0 0 1 17.5 20H7',
-    down: 'M17 13V4h3v9zM17 13l-4 8c-1.7 0-2.6-1-2.3-2.7l.5-3.3H5c-1.2 0-2-1-1.8-2.2l1.3-7A2 2 0 0 1 6.5 4H17',
-    ext: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
-    person: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5',
-    retry: 'M4 12a8 8 0 1 0 2.4-5.7M4 4v5h5'
-  };
-  function icon(name, size) {
-    var s = document.createElementNS(SVGNS, 'svg');
-    s.setAttribute('viewBox', '0 0 24 24');
-    s.setAttribute('width', size || 18); s.setAttribute('height', size || 18);
-    s.setAttribute('aria-hidden', 'true'); s.setAttribute('focusable', 'false');
-    var p = document.createElementNS(SVGNS, 'path');
-    p.setAttribute('d', ICONS[name]);
-    p.setAttribute('fill', 'none'); p.setAttribute('stroke', 'currentColor');
-    p.setAttribute('stroke-width', '2'); p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round');
-    s.appendChild(p);
-    return s;
-  }
-  function button(cls, label, iconName) {
-    var b = el('button', 'btn' + (cls ? ' ' + cls : ''));
-    b.type = 'button';
-    if (iconName) b.appendChild(icon(iconName));
-    b.appendChild(el('span', null, label));
-    return b;
-  }
-  function setLabel(btn, text) { btn.lastChild.textContent = text; }
+
   function safeUrl(u) {
-    try { var p = new URL(u); return (p.protocol === 'https:' || p.protocol === 'http:') ? p : null; }
-    catch (e) { return null; }
+    try {
+      var p = new URL(u);
+      return (p.protocol === 'https:' || p.protocol === 'http:') ? p : null;
+    } catch (e) {
+      return null;
+    }
   }
-  function sitePath(p) {
-    var path = p.pathname;
-    try { path = decodeURI(path); } catch (e) {}
-    path = path.replace(/\/+$/, '');
-    var s = p.hostname.replace(/^www\./, '') + path;
-    return s.length > 80 ? s.slice(0, 40) + '...' + s.slice(-36) : s;
+
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return String(iso || '');
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   }
+
+  function fmtTimeUtc(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return String(iso || '');
+    return d.toISOString().slice(11, 19) + 'Z';
+  }
+
   function trimText(t, n) {
     t = String(t || '').replace(/\s+/g, ' ').trim();
     if (t.length <= n) return t;
     var cut = t.slice(0, n), sp = cut.lastIndexOf(' ');
     return (sp > n * 0.6 ? cut.slice(0, sp) : cut).replace(/[,;:.\s]+$/, '') + '...';
   }
-  function fmtDate(iso) {
-    var d = new Date(iso);
-    if (isNaN(d)) return '';
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  }
-  function setStatus(t) { statusEl.textContent = t || ''; }
+
   function scrollTo(node, block) {
+    if (!node) return;
     node.scrollIntoView({ block: block || 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
   }
 
-  /* Split an answer into short paragraphs (and bullet lists if the text has them). */
-  function renderAnswer(text, into) {
-    var blocks = String(text).replace(/\r/g, '').split(/\n\s*\n/);
+  function renderTextBlocks(text, into) {
+    var blocks = String(text || '').replace(/\r/g, '').split(/\n\s*\n/);
     blocks.forEach(function (block) {
       var lines = block.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
       if (!lines.length) return;
       var bullets = lines.filter(function (l) { return /^([-*•]|\d+[.)])\s+/.test(l); });
-      if (bullets.length >= 2 && bullets.length >= lines.length - 1) {
+      if (bullets.length >= 2 || (bullets.length === 1 && lines.length === 1)) {
         lines.forEach(function (l) {
-          if (!/^([-*•]|\d+[.)])\s+/.test(l)) { var p0 = el('p', null, l); p0.dir = 'auto'; into.appendChild(p0); }
+          if (!/^([-*•]|\d+[.)])\s+/.test(l)) {
+            var p0 = el('p', null, l);
+            p0.dir = 'auto';
+            into.appendChild(p0);
+          }
         });
-        var ul = el('ul'); ul.dir = 'auto';
-        bullets.forEach(function (l) { ul.appendChild(el('li', null, l.replace(/^([-*•]|\d+[.)])\s+/, ''))); });
+        var ul = el('ul');
+        ul.dir = 'auto';
+        bullets.forEach(function (l) {
+          ul.appendChild(el('li', null, l.replace(/^([-*•]|\d+[.)])\s+/, '')));
+        });
         into.appendChild(ul);
         return;
       }
-      var para = lines.join(' ');
-      var parts = [];
-      if (para.length <= 300) parts.push(para);
-      else {
-        /* a full stop followed by a digit (6.0, 1.5, 3.2) is part of a number, not the end of a sentence */
-        var sents = para.match(/(?:[^.!?؟]|\.(?=\d))+[.!?؟]+["')\]]*\s*|(?:[^.!?؟]|\.(?=\d))+$/g) || [para];
-        var cur = '';
-        sents.forEach(function (s) {
-          if (cur && (cur + s).length > 240) { parts.push(cur.trim()); cur = ''; }
-          cur += s;
-        });
-        if (cur.trim()) parts.push(cur.trim());
-      }
-      parts.forEach(function (t) { var p = el('p', null, t); p.dir = 'auto'; into.appendChild(p); });
+      var p = el('p', null, lines.join(' '));
+      p.dir = 'auto';
+      into.appendChild(p);
     });
-    if (!into.firstChild) into.appendChild(el('p', null, 'No answer was returned.'));
+    if (!into.firstChild) into.appendChild(el('p', null, 'No answer returned.'));
   }
 
   function copyText(text, btn) {
     function done(ok) {
-      setLabel(btn, ok ? 'Copied' : 'Copy failed');
-      btn.firstChild.replaceWith(icon(ok ? 'check' : 'copy'));
-      setStatus(ok ? 'Answer copied.' : 'Could not copy. Select the text and copy it instead.');
-      setTimeout(function () { setLabel(btn, 'Copy answer'); btn.firstChild.replaceWith(icon('copy')); setStatus(''); }, 2000);
+      btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+      setTimeout(function () { btn.textContent = 'Copy answer'; }, 1800);
     }
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(fallback()); });
-    } else done(fallback());
-    function fallback() {
-      var ta = el('textarea'); ta.value = text; ta.setAttribute('readonly', '');
-      ta.className = 'sr'; document.body.appendChild(ta); ta.select();
-      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
-      ta.remove(); return ok;
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
     }
   }
 
-  /* ---------- thread ---------- */
-  function addMessage(role, node) {
-    thread.appendChild(node);
-    messages.push({ role: role, el: node });
-    while (messages.length > MAX_MESSAGES) { var old = messages.shift(); if (old.el.parentNode) old.el.remove(); }
+  /* ---------- Header Counters & Live Telemetry ---------- */
+  function updateCounters() {
+    var openCount = state.tickets.filter(function (t) { return t.status !== 'Resolved'; }).length;
+    var flaggedCount = state.articles.filter(function (a) { return a.status !== 'verified'; }).length;
+    openTicketBadge.textContent = openCount + ' Open';
+    openTicketBadge.className = 'count-pill ' + (openCount > 0 ? 'warn' : 'ok');
+
+    conflictBadge.textContent = flaggedCount + ' Flagged';
+    conflictBadge.className = 'count-pill ' + (flaggedCount > 0 ? 'bad' : 'ok');
+
+    auditCountBadge.textContent = state.auditLog.length + ' Events';
   }
 
-  function userBubble(text) {
-    var row = el('div', 'row user');
-    var b = el('div', 'bubble', text); b.dir = 'auto';
-    var label = el('span', 'sr', 'You asked: ');
-    row.appendChild(label); row.appendChild(b);
-    addMessage('user', row);
-    scrollTo(row, 'end');
+  function pushAuditEntry(entry) {
+    state.auditLog.unshift({
+      ts: new Date().toISOString(),
+      question: D.redactPii(entry.question),
+      mode: entry.mode || 'kms-rag',
+      confidence: entry.confidence != null ? entry.confidence : 0,
+      sourceId: entry.sourceId || 'KMS',
+      rule: entry.rule || 'LOGGED'
+    });
+    if (state.auditLog.length > 40) state.auditLog.length = 40;
+    updateCounters();
+    if (state.activeTab === 'cto') renderAuditTable();
   }
 
-  function confLabel(c) {
-    var n = Number(c) || 0;
-    if (n >= 0.7) return ['high', 'High confidence'];
-    if (n >= 0.45) return ['medium', 'Medium confidence'];
-    return ['low', 'Low confidence'];
+  /* ---------- Tab & Persona Switching ---------- */
+  var TAB_MAP = {
+    assistant: { btn: $('tabBtnAssistant'), panel: $('panelAssistant') },
+    tickets:   { btn: $('tabBtnTickets'),   panel: $('panelTickets') },
+    kms:       { btn: $('tabBtnKms'),       panel: $('panelKms') },
+    cto:       { btn: $('tabBtnCto'),       panel: $('panelCto') }
+  };
+
+  function switchTab(name) {
+    if (!TAB_MAP[name]) name = 'assistant';
+    state.activeTab = name;
+    Object.keys(TAB_MAP).forEach(function (k) {
+      var active = (k === name);
+      TAB_MAP[k].btn.classList.toggle('active', active);
+      TAB_MAP[k].btn.setAttribute('aria-selected', String(active));
+      TAB_MAP[k].panel.hidden = !active;
+    });
+    if (name === 'tickets') renderTickets();
+    if (name === 'kms') renderKms();
+    if (name === 'cto') { renderPilotKpis(); renderAuditTable(); renderRoadmap(); }
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
   }
 
-  function feedbackRow(question, actions) {
-    var label = el('span', 'fb-label', 'Helpful?');
-    var yes = button('', 'Yes', 'up'), no = button('', 'No', 'down');
-    yes.setAttribute('aria-label', 'Yes, this answer was helpful');
-    no.setAttribute('aria-label', 'No, this answer was not helpful');
-    function send(helpful, btn) {
-      yes.disabled = no.disabled = true;
-      btn.classList.add('picked'); btn.setAttribute('aria-pressed', 'true');
-      fetch('/api/feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: question, helpful: helpful }) })
-        .then(function (r) { label.textContent = r.ok ? 'Thanks.' : 'Not saved.'; })
-        .catch(function () { label.textContent = 'Not saved.'; });
+  function setCorpusMode(mode) {
+    state.corpusMode = (mode === 'uowd') ? 'uowd' : 'educonnect';
+    var isEdu = state.corpusMode === 'educonnect';
+    modeEduBtn.classList.toggle('active', isEdu);
+    modeUowdBtn.classList.toggle('active', !isEdu);
+    if (isEdu) {
+      engineHint.textContent = 'Active: EduConnect KMS (24 Policies) + automatic fallback to UOWD 240-page live BM25 index.';
+      input.placeholder = 'Ask about late penalties, enrollment, tuition refunds, appeals, or UOWD info...';
+    } else {
+      engineHint.textContent = 'Active: Live UOWD Campus Corpus (240 crawled pages from uowdubai.ac.ae via custom BM25).';
+      input.placeholder = 'Ask any public question about UOWD (tuition fees, IELTS, visas, scholarships, dates)...';
     }
-    yes.addEventListener('click', function () { send(true, yes); });
-    no.addEventListener('click', function () { send(false, no); });
-    var group = el('span', 'fb');
-    group.appendChild(label); group.appendChild(yes); group.appendChild(no);
-    actions.appendChild(group);
+    renderSuggestions();
   }
 
-  function sourceCard(s) {
+  function selectPersona(personaId) {
+    var p = D.PERSONAS.filter(function (x) { return x.id === personaId; })[0] || D.PERSONAS[0];
+    state.activePersona = p.id;
+    state.selectedCategory = null;
+    personaTag.textContent = p.roleTag;
+    Array.prototype.forEach.call(personaBar.children, function (btn) {
+      btn.classList.toggle('active', btn.dataset.persona === p.id);
+    });
+    setCorpusMode(p.corpus);
+    renderCategories();
+    switchTab(p.tab);
+  }
+
+  function renderPersonas() {
+    personaBar.textContent = '';
+    D.PERSONAS.forEach(function (p) {
+      var b = el('button', 'persona-pill' + (p.id === state.activePersona ? ' active' : ''), p.label);
+      b.type = 'button';
+      b.dataset.persona = p.id;
+      b.addEventListener('click', function () { selectPersona(p.id); });
+      personaBar.appendChild(b);
+    });
+  }
+
+  /* ---------- Category Grid & Suggestions (Tab 1) ---------- */
+  function renderCategories() {
+    categoryGrid.textContent = '';
+    clearCatBtn.hidden = !state.selectedCategory;
+    D.CATEGORIES.forEach(function (cat) {
+      var catArts = state.articles.filter(function (a) { return a.category === cat.id; });
+      var flagged = catArts.filter(function (a) { return a.status !== 'verified'; }).length;
+      var card = el('button', 'cat-card' + (state.selectedCategory === cat.id ? ' active' : ''));
+      card.type = 'button';
+
+      var top = el('div', 'cat-top');
+      top.appendChild(el('span', 'cat-name', cat.name));
+      var badges = el('span', 'cat-badges');
+      badges.appendChild(el('span', 'cat-count', catArts.length + ' policies'));
+      if (flagged > 0) badges.appendChild(el('span', 'count-pill bad', flagged + ' alert'));
+      top.appendChild(badges);
+
+      card.appendChild(top);
+      card.appendChild(el('p', 'cat-desc', cat.desc));
+      card.addEventListener('click', function () {
+        state.selectedCategory = (state.selectedCategory === cat.id) ? null : cat.id;
+        setCorpusMode('educonnect');
+        renderCategories();
+        renderSuggestions();
+        scrollTo($('suggestSection'), 'nearest');
+      });
+      categoryGrid.appendChild(card);
+    });
+  }
+
+  function renderSuggestions() {
+    chipsEl.textContent = '';
+    chipsEl.hidden = false;
+    moreBtn.hidden = true;
+
+    var list = [];
+    var isGuard = (state.activePersona === 'guard' && !state.selectedCategory);
+
+    if (state.selectedCategory) {
+      var catObj = D.CATEGORIES.filter(function (c) { return c.id === state.selectedCategory; })[0];
+      suggestTitle.textContent = (catObj ? catObj.name : 'Category') + ' — Policy Questions';
+      suggestSub.textContent = 'Questions mapped directly to verified KMS policies (plus governance conflict triggers).';
+      list = state.articles
+        .filter(function (a) { return a.category === state.selectedCategory; })
+        .map(function (a) { return a.sampleQuestion; });
+    } else if (state.corpusMode === 'uowd') {
+      suggestTitle.textContent = 'UOWD Public Website — Live Corpus Prompts (240 Pages)';
+      suggestSub.textContent = 'Queries run live BM25 search across real crawled pages from uowdubai.ac.ae.';
+      list = state.uowdChips.slice(0, 6);
+    } else if (isGuard) {
+      suggestTitle.textContent = 'Guardrail Stress-Test Scenarios (CTO Q4, Q7 & Q8)';
+      suggestSub.textContent = 'Click any stress-test prompt to test sensitive escalation, PII redaction, and prompt-injection blocking.';
+      list = D.PERSONAS.filter(function (p) { return p.id === 'guard'; })[0].chips;
+    } else {
+      suggestTitle.textContent = 'Recommended Student Questions';
+      suggestSub.textContent = 'Click a question to see grounded section citations, or switch to Guardrail Stress-Test above.';
+      list = D.PERSONAS[0].chips;
+    }
+
+    list.forEach(function (q) {
+      var b = el('button', 'chip' + (isGuard ? ' guard-chip' : ''), q);
+      b.type = 'button';
+      b.disabled = state.busy;
+      b.addEventListener('click', function () { ask(q); });
+      chipsEl.appendChild(b);
+    });
+  }
+
+  /* ---------- Tab 1 Answer Cards & Escalation ---------- */
+  function createTicketFromAnswer(question, res, btn, followWrap) {
+    var topSrc = (res.sources && res.sources[0]) || null;
+    var ticketId = 'TCK-' + (state.nextTicketNum++);
+    var redQ = D.redactPii(question);
+    var reason = (res.handoff && res.handoff.reason) || (res.mode === 'refused' ? 'Low Confidence / Out of Scope' : 'Student Requested Human Verification');
+    var team = (res.handoff && res.handoff.team) || 'Student Support Desk';
+    var draft = topSrc
+      ? 'Recommended Staff Reply citing ' + (topSrc.id || 'Official Source') + ': ' + trimText(topSrc.snippet || res.answer, 220)
+      : 'No matching institutional policy found above confidence threshold. Please review student request directly and update KMS if a documentation gap exists.';
+
+    state.tickets.unshift({
+      id: ticketId,
+      createdAt: 'Just now (Live Escalation)',
+      student: 'Student #S2041877 (Redacted)',
+      category: res.primaryArticle ? res.primaryArticle.categoryLabel : 'General Support',
+      trigger: reason,
+      triggerLevel: res.mode === 'refused' ? 'urgent' : 'warn',
+      question: redQ,
+      status: 'Open',
+      assignedTeam: team,
+      citedId: topSrc && topSrc.id ? topSrc.id : 'NONE',
+      citedTitle: topSrc ? topSrc.title : 'Human Policy Lookup Required',
+      copilotDraft: draft
+    });
+
+    updateCounters();
+    pushAuditEntry({
+      question: question,
+      mode: 'ticket-escalated',
+      confidence: res.confidence || 0,
+      sourceId: ticketId,
+      rule: 'ESCALATED -> ' + team
+    });
+
+    btn.disabled = true;
+    btn.textContent = 'Ticket ' + ticketId + ' Created ✓';
+
+    if (followWrap && !followWrap.querySelector('.jump-ticket-btn')) {
+      var jump = el('button', 'btn-outline jump-ticket-btn', 'Open in Staff Queue →');
+      jump.type = 'button';
+      jump.addEventListener('click', function () { switchTab('tickets'); });
+      followWrap.appendChild(jump);
+    }
+  }
+
+  function renderSourceCard(s) {
     var li = el('li', 'source');
+    var head = el('div', 'source-head');
+    head.appendChild(el('p', 'source-title', s.title || 'Source'));
+    if (s.status) {
+      var stCls = s.status === 'verified' ? 'ok' : 'bad';
+      var stTxt = s.status === 'verified' ? 'Verified' : (s.status === 'conflict' ? 'Conflict' : 'Stale');
+      head.appendChild(el('span', 'pill-badge ' + stCls, stTxt));
+    }
+    li.appendChild(head);
+
+    if (s.section || s.id) {
+      li.appendChild(el('p', 'source-path', (s.id ? s.id + ' · ' : '') + (s.section || '')));
+    } else if (s.url) {
+      var u0 = safeUrl(s.url);
+      if (u0) li.appendChild(el('p', 'source-path', u0.hostname.replace(/^www\./, '') + u0.pathname));
+    }
+
+    if (s.snippet) li.appendChild(el('p', 'source-snippet', trimText(s.snippet, 175)));
+
     var u = safeUrl(s.url);
-    var title = el('p', 'source-title', String(s.title || (u ? u.hostname : 'Source'))); title.dir = 'auto';
-    li.appendChild(title);
-    if (u) li.appendChild(el('p', 'source-path', sitePath(u)));
-    if (s.snippet) { var sn = el('p', 'source-snippet', trimText(s.snippet, 180)); sn.dir = 'auto'; li.appendChild(sn); }
     if (u) {
-      var a = el('a', 'source-link');
-      a.href = u.href; a.target = '_blank'; a.rel = 'noopener noreferrer';
-      a.appendChild(el('span', null, 'Open official page'));
-      a.appendChild(icon('ext', 15));
-      a.appendChild(el('span', 'sr', ' (opens in a new tab): ' + String(s.title || '')));
+      var a = el('a', 'source-link', 'Open official UOWD page ↗');
+      a.href = u.href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
       li.appendChild(a);
+    } else if (s.id) {
+      var inspect = el('button', 'source-link', 'Inspect full policy & owner →');
+      inspect.type = 'button';
+      inspect.addEventListener('click', function () { openArticleModal(s.id); });
+      li.appendChild(inspect);
     }
     return li;
   }
 
-  function sourcesBlock(srcs) {
-    var wrap = el('div', 'sources-wrap');
-    wrap.appendChild(el('h3', 'sources-title', srcs.length === 1 ? 'Source' : 'Sources (' + srcs.length + ')'));
-    var ul = el('ul', 'sources');
-    srcs.forEach(function (s, i) {
-      var li = sourceCard(s);
-      if (i >= SOURCES_SHOWN) li.hidden = true;
-      ul.appendChild(li);
-    });
-    wrap.appendChild(ul);
-    var extra = srcs.length - SOURCES_SHOWN;
-    if (extra > 0) {
-      var more = button('show-more', 'Show ' + extra + ' more source' + (extra > 1 ? 's' : ''));
-      more.setAttribute('aria-expanded', 'false');
-      more.addEventListener('click', function () {
-        var open = more.getAttribute('aria-expanded') === 'true';
-        Array.prototype.forEach.call(ul.children, function (li, i) { if (i >= SOURCES_SHOWN) li.hidden = open; });
-        more.setAttribute('aria-expanded', String(!open));
-        setLabel(more, open ? 'Show ' + extra + ' more source' + (extra > 1 ? 's' : '') : 'Show fewer sources');
-        if (!open) { var a = ul.children[SOURCES_SHOWN].querySelector('a'); if (a) a.focus(); }
-      });
-      wrap.appendChild(more);
-    }
-    return wrap;
-  }
-
-  function handoffBox(text) {
-    var h = el('div', 'handoff');
-    h.setAttribute('role', 'note');
-    h.setAttribute('aria-label', 'Talk to a person');
-    var ic = el('span', 'handoff-icon'); ic.appendChild(icon('person', 18));
-    var body = el('div');
-    body.appendChild(el('h3', null, 'Talk to a person'));
-    var p = el('p', null, String(text || 'Please contact UOWD Student Services.')); p.dir = 'auto';
-    body.appendChild(p);
-    h.appendChild(ic); h.appendChild(body);
-    return h;
-  }
-
-  function botAnswer(data, question) {
+  function botAnswerCard(data, question, sourceLabel) {
     var refused = data.mode === 'refused';
+    var secBlocked = data.type === 'SECURITY_GUARDRAIL_BLOCK';
     var row = el('article', 'row bot');
-    row.setAttribute('aria-label', refused ? 'Assistant could not answer' : 'Assistant answer');
-    var card = el('div', 'card' + (refused ? ' refused' : ''));
+    var cardCls = 'card' + (secBlocked ? ' security-blocked' : (refused ? ' refused' : ''));
+    var card = el('div', cardCls);
+
+    /* Header strip */
+    var head = el('div', 'card-head');
+    head.appendChild(el('p', 'card-kicker', secBlocked ? 'Security Firewall Blocked' : (refused ? 'EduConnect Guard · Human Handoff Required' : (sourceLabel || 'Verified Policy Answer'))));
+
+    var pills = el('span', 'provenance-pills');
+    if (secBlocked) {
+      pills.appendChild(el('span', 'pill-badge bad', 'Prompt Injection Blocked'));
+    } else if (refused) {
+      pills.appendChild(el('span', 'pill-badge warn', data.ruleLabel || 'Guardrail Declined'));
+    } else {
+      var pct = Math.round((Number(data.confidence) || 0) * 100);
+      pills.appendChild(el('span', 'pill-badge ' + (pct >= 70 ? 'ok' : 'warn'), pct + '% Match Confidence'));
+    }
+    if (data.ms != null) pills.appendChild(el('span', 'pill-badge neutral', data.ms + ' ms'));
+    head.appendChild(pills);
+    card.appendChild(head);
+
+    /* Body */
     var body = el('div', 'card-body');
-    body.appendChild(el('p', 'card-kicker', refused ? 'Not answered' : 'Answer'));
     var ans = el('div', 'answer');
-    renderAnswer(String(data.answer || (refused ? 'I could not find this in the public UOWD pages.' : 'No answer was returned.')), ans);
+    renderTextBlocks(data.answer, ans);
     body.appendChild(ans);
 
-    var meta = el('p', 'meta');
-    var parts = [];
-    if (!refused) {
-      var cl = confLabel(data.confidence);
-      var c = el('span', 'conf-' + cl[0]); c.appendChild(el('span', 'conf-dot')); c.appendChild(document.createTextNode(cl[1]));
-      parts.push(c);
-      parts.push(el('span', null, data.mode === 'llm' ? 'Worded by AI from the sources' : 'Quoted from the sources'));
+    var meta = el('div', 'meta-bar');
+    if (data.primaryArticle) {
+      meta.appendChild(el('span', null, 'Owner: ' + data.primaryArticle.owner));
+      meta.appendChild(el('span', null, 'Verified: ' + data.primaryArticle.lastVerified));
+    } else if (data.lastChecked) {
+      meta.appendChild(el('span', null, 'Corpus checked: ' + fmtDate(data.lastChecked)));
     }
-    var d = data.lastChecked ? fmtDate(data.lastChecked) : '';
-    if (d) parts.push(el('span', null, 'Checked on ' + d));
-    parts.forEach(function (p, i) { if (i) meta.appendChild(el('span', 'sep', '·')); meta.appendChild(p); });
-    if (parts.length) body.appendChild(meta);
+    meta.appendChild(el('span', null, 'Logged query: "' + trimText(D.redactPii(question), 64) + '"'));
+    body.appendChild(meta);
     card.appendChild(body);
 
-    if (data.handoff && data.handoff.show) card.appendChild(handoffBox(data.handoff.text));
+    /* Guardrail / Handoff Banner */
+    if ((data.handoff && data.handoff.show) || refused) {
+      var ho = data.handoff || { show: true, severity: 'warn', team: 'Student Support Desk', reason: 'Low Retrieval Confidence', text: 'I could not verify a confident policy match. Escalate to staff below.' };
+      var hBox = el('div', 'handoff' + (ho.severity === 'urgent' || secBlocked ? ' urgent' : ''));
+      var hCopy = el('div');
+      hCopy.appendChild(el('h4', null, ho.reason || 'Human Support Routing'));
+      hCopy.appendChild(el('p', null, ho.text || 'Please confirm or escalate with university support staff.'));
+      hBox.appendChild(hCopy);
 
-    var srcs = Array.isArray(data.sources) ? data.sources.filter(function (s) { return s && (s.url || s.title); }) : [];
-    if (srcs.length) card.appendChild(sourcesBlock(srcs));
-
-    var actions = el('div', 'actions');
-    if (!refused) {
-      var copy = button('', 'Copy answer', 'copy');
-      copy.addEventListener('click', function () {
-        var text = String(data.answer || '');
-        var urls = srcs.map(function (s) { var u = safeUrl(s.url); return u ? u.href : ''; }).filter(Boolean);
-        if (urls.length) text += '\n\nSources:\n' + urls.join('\n');
-        copyText(text, copy);
-      });
-      actions.appendChild(copy);
+      if (!secBlocked) {
+        var hAct = el('div', 'handoff-actions');
+        var escBtn = el('button', 'btn-warn', 'Escalate to Support Ticket Queue');
+        escBtn.type = 'button';
+        escBtn.addEventListener('click', function () {
+          createTicketFromAnswer(question, data, escBtn, hAct);
+        });
+        hAct.appendChild(escBtn);
+        hBox.appendChild(hAct);
+      }
+      card.appendChild(hBox);
     }
-    actions.appendChild(el('span', 'spacer'));
-    feedbackRow(question, actions);
-    card.appendChild(actions);
+
+    /* Sources */
+    var srcs = Array.isArray(data.sources) ? data.sources.filter(Boolean) : [];
+    if (srcs.length) {
+      var sw = el('div', 'sources-wrap');
+      sw.appendChild(el('h4', 'sources-title', 'Verified Sources (' + srcs.length + ')'));
+      var ul = el('ul', 'sources');
+      srcs.forEach(function (s) { ul.appendChild(renderSourceCard(s)); });
+      sw.appendChild(ul);
+      card.appendChild(sw);
+    }
+
+    /* Footer Actions */
+    var act = el('div', 'actions');
+    if (!refused && !secBlocked) {
+      var cpy = el('button', 'btn', 'Copy answer');
+      cpy.type = 'button';
+      cpy.addEventListener('click', function () { copyText(data.answer, cpy); });
+      act.appendChild(cpy);
+    }
+    act.appendChild(el('span', 'spacer'));
+    var fb = el('span', 'fb');
+    var fbLbl = el('span', 'fb-label', 'Helpful?');
+    var yBtn = el('button', 'btn', 'Yes'); yBtn.type = 'button';
+    var nBtn = el('button', 'btn', 'No');  nBtn.type = 'button';
+    function sendFb(helpful, picked) {
+      yBtn.disabled = nBtn.disabled = true;
+      picked.classList.add('picked');
+      fbLbl.textContent = 'Saved ✓';
+      fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: question, helpful: helpful })
+      }).catch(function () {});
+    }
+    yBtn.addEventListener('click', function () { sendFb(true, yBtn); });
+    nBtn.addEventListener('click', function () { sendFb(false, nBtn); });
+    fb.appendChild(fbLbl); fb.appendChild(yBtn); fb.appendChild(nBtn);
+    act.appendChild(fb);
+    card.appendChild(act);
 
     row.appendChild(card);
-    addMessage('bot', row);
+    addMessage(row);
     scrollTo(row, 'start');
   }
 
-  function errorCard(title, text, retryQ) {
+  function addMessage(node) {
+    thread.appendChild(node);
+    state.messages.push(node);
+    clearThreadBtn.hidden = false;
+    while (state.messages.length > 20) {
+      var old = state.messages.shift();
+      if (old && old.parentNode) old.remove();
+    }
+  }
+
+  function userBubble(text) {
+    var row = el('div', 'row user');
+    var b = el('div', 'bubble', text);
+    b.dir = 'auto';
+    row.appendChild(b);
+    addMessage(row);
+    scrollTo(row, 'end');
+  }
+
+  function loadingCard() {
     var row = el('div', 'row bot');
-    var card = el('div', 'card error');
-    card.setAttribute('role', 'alert');
-    var body = el('div', 'card-body');
-    body.appendChild(el('p', 'card-kicker', title));
-    body.appendChild(el('div', 'answer', text));
-    card.appendChild(body);
-    if (retryQ) {
-      var actions = el('div', 'actions');
-      var r = button('primary', 'Try again', 'retry');
-      r.addEventListener('click', function () { if (busy) return; row.remove(); ask(retryQ, true); });
-      actions.appendChild(r);
-      card.appendChild(actions);
-    }
-    row.appendChild(card);
-    addMessage('bot', row);
-    scrollTo(row, 'start');
-  }
-
-  function loadingCard(onStop) {
-    var row = el('div', 'row bot loading');
     var card = el('div', 'card');
     var body = el('div', 'card-body');
-    var kick = el('p', 'card-kicker');
-    var t = el('span', 'typing'); t.setAttribute('aria-hidden', 'true');
+    var p = el('p', 'card-kicker');
+    var t = el('span', 'typing');
     for (var i = 0; i < 3; i++) t.appendChild(el('span', 'dot'));
-    kick.appendChild(t);
-    kick.appendChild(el('span', null, 'Searching UOWD pages'));
-    body.appendChild(kick);
-    ['w1', 'w2', 'w3'].forEach(function (w) { var s = el('div', 'skel ' + w); s.setAttribute('aria-hidden', 'true'); body.appendChild(s); });
-    var slow = el('div', 'slow-note'); slow.hidden = true;
-    slow.appendChild(el('span', null, 'Still working. This can take up to 20 seconds.'));
-    var stop = button('', 'Stop waiting');
-    stop.addEventListener('click', onStop);
-    slow.appendChild(stop);
-    body.appendChild(slow);
+    p.appendChild(t);
+    p.appendChild(document.createTextNode(state.corpusMode === 'uowd' ? 'Searching 240 live UOWD pages...' : 'Checking EduConnect guardrails & KMS...'));
+    body.appendChild(p);
+    body.appendChild(el('div', 'skel w1'));
+    body.appendChild(el('div', 'skel w2'));
     card.appendChild(body);
     row.appendChild(card);
     thread.appendChild(row);
     scrollTo(row, 'end');
-    return { row: row, showSlow: function () { slow.hidden = false; setStatus('Still working. You can stop waiting at any time.'); } };
+    return row;
   }
 
-  /* ---------- asking ---------- */
   function setBusy(b) {
-    busy = b; sendBtn.disabled = b;
-    thread.setAttribute('aria-busy', b ? 'true' : 'false');
+    state.busy = b;
+    sendBtn.disabled = b;
     Array.prototype.forEach.call(chipsEl.querySelectorAll('button'), function (c) { c.disabled = b; });
   }
 
-  function collapseSuggestions() {
-    if (!asked) {
-      asked = true;
-      emptyEl.hidden = true;
-      if (chipsEl.children.length) moreBtn.hidden = false;
+  function ask(rawQ) {
+    var q = String(rawQ || '').trim();
+    if (!q || state.busy) return;
+    if (q.length > 400) {
+      statusEl.textContent = 'Please keep questions under 400 characters.';
+      return;
     }
-    chipsEl.hidden = true;
-    suggestEl.classList.add('collapsed');
-    moreBtn.setAttribute('aria-expanded', 'false');
-  }
 
-  function ask(q, isRetry) {
-    q = (q || '').trim();
-    if (!q || busy) return;
-    if (q.length > 400) { setStatus('Please keep your question under 400 characters.'); return; }
-    setStatus('Searching the UOWD pages...');
-    collapseSuggestions();
-    if (!isRetry) userBubble(q);
-    input.value = ''; autosize();
+    statusEl.textContent = '';
+    userBubble(q);
+    input.value = '';
+    autosize();
     setBusy(true);
 
-    var ctrl = window.AbortController ? new AbortController() : null;
-    var why = null;
-    var loading = loadingCard(function () { why = 'stopped'; if (ctrl) ctrl.abort(); });
-    var slowT = setTimeout(loading.showSlow, SLOW_MS);
-    var hardT = setTimeout(function () { why = 'timeout'; if (ctrl) ctrl.abort(); }, TIMEOUT_MS);
-    var started = Date.now();
-    current = ctrl;
+    if (state.corpusMode === 'educonnect') {
+      var t0 = performance.now();
+      var localRes = D.answerEduConnect(q, state.articles);
+      if (localRes) {
+        localRes.ms = Math.max(1, Math.round(performance.now() - t0));
+        var srcLabel = localRes.primaryArticle
+          ? ('EduConnect KMS · ' + localRes.primaryArticle.id)
+          : 'EduConnect KMS Response';
+        botAnswerCard(localRes, q, srcLabel);
+        pushAuditEntry({
+          question: q,
+          mode: localRes.type === 'SECURITY_GUARDRAIL_BLOCK' ? 'security-blocked' : (localRes.mode === 'refused' ? 'guardrail-refused' : 'rag-verified'),
+          confidence: localRes.confidence,
+          sourceId: localRes.sources[0] ? (localRes.sources[0].id || 'KMS') : (localRes.type === 'SECURITY_GUARDRAIL_BLOCK' ? 'FIREWALL' : 'GUARD'),
+          rule: localRes.auditRule
+        });
+        setBusy(false);
+        if (finePointer) input.focus({ preventScroll: true });
+        return;
+      }
+    }
 
-    fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: q }), signal: ctrl ? ctrl.signal : undefined })
-      .then(function (r) {
-        return r.json().catch(function () { return {}; }).then(function (body) { return { status: r.status, ok: r.ok, body: body }; });
-      })
+    /* Fall back to (or explicitly query) UOWD 240-Page Live BM25 Engine via /api/ask */
+    var loadNode = loadingCard();
+    fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q })
+    })
+      .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
       .then(function (res) {
-        loading.row.remove();
-        if (res.status === 429) errorCard('Too many questions', 'You are asking too quickly. Please wait a minute and try again.', q);
-        else if (res.status === 400) errorCard('Could not read that', 'That question could not be read. Please rephrase it (up to 400 characters).', null);
-        else if (!res.ok) errorCard('Something went wrong', 'The assistant had a problem on its side. Try again, or contact UOWD Student Services.', q);
-        else { botAnswer(res.body || {}, q); setStatus(''); return; }
-        setStatus('');
+        loadNode.remove();
+        if (!res.ok) {
+          throw new Error(res.body && res.body.error || 'Engine error');
+        }
+        var data = res.body || {};
+        var isFallback = (state.corpusMode === 'educonnect');
+        var label = data.mode === 'refused'
+          ? 'No Policy Match Found · Human Escalation Available'
+          : (isFallback ? 'Fallback · UOWD Live 240-Page Corpus' : 'UOWD Live 240-Page Corpus (BM25)');
+        if (data.mode === 'refused') {
+          data.ruleLabel = 'Below Confidence Threshold';
+          data.handoff = {
+            show: true,
+            severity: 'warn',
+            team: 'Student Support Desk',
+            reason: 'Low Confidence / Topic Not in Approved KMS',
+            text: data.handoff && data.handoff.text ? data.handoff.text : 'No approved EduConnect or UOWD page matched above threshold. Escalate to support staff.'
+          };
+        } else if (data.handoff && data.handoff.show) {
+          data.handoff.reason = 'Critical Date / Fee Policy — Verify with Official Source';
+          data.handoff.team = 'Admissions & Student Finance';
+        }
+        botAnswerCard(data, q, label);
+        pushAuditEntry({
+          question: q,
+          mode: data.mode === 'refused' ? 'low-conf-refused' : 'uowd-bm25',
+          confidence: data.confidence || 0,
+          sourceId: data.sources && data.sources[0] ? 'uowdubai.ac.ae' : 'NONE',
+          rule: data.mode === 'refused' ? 'BELOW_THRESH -> Handoff' : 'PUBLIC_UOWD_GROUNDED'
+        });
       })
       .catch(function () {
-        loading.row.remove();
-        if (why === 'stopped') errorCard('Stopped waiting', 'You stopped waiting for this answer. You can try again.', q);
-        else if (why === 'timeout') errorCard('No answer yet', 'No answer after ' + Math.round((Date.now() - started) / 1000) + ' seconds. The service may be busy. Please try again.', q);
-        else errorCard('Could not connect', 'Could not reach the assistant. Check your connection (same Wi-Fi or hotspot) and try again.', q);
-        setStatus('');
+        loadNode.remove();
+        var fallbackRefusal = {
+          mode: 'refused',
+          confidence: 0,
+          ruleLabel: 'Corpus Offline / Unmatched',
+          answer: 'I could not reach the UOWD search index for this query and found no matching EduConnect policy.',
+          handoff: { show: true, severity: 'warn', team: 'Student Support Desk', reason: 'Manual Escalation Required', text: 'Create a ticket below for human support assistance.' },
+          sources: []
+        };
+        botAnswerCard(fallbackRefusal, q, 'Refused · Escalate to Support');
       })
       .then(function () {
-        clearTimeout(slowT); clearTimeout(hardT); current = null;
         setBusy(false);
         if (finePointer) input.focus({ preventScroll: true });
       });
   }
 
-  function autosize() {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight + 2, 140) + 'px';
+  /* ---------- TAB 2: Staff Ticket Queue ---------- */
+  function renderTickets() {
+    var openT = state.tickets.filter(function (t) { return t.status !== 'Resolved'; });
+    var sensT = state.tickets.filter(function (t) { return /Sensitive/i.test(t.trigger); });
+    var govT = state.tickets.filter(function (t) { return /Conflict|Stale|Confidence|Manual/i.test(t.trigger); });
+
+    ticketKpis.textContent = '';
+    [
+      { lbl: 'Open Escalations', val: openT.length, sub: 'Awaiting support agent action' },
+      { lbl: 'Guardrail Sensitive', val: sensT.length, sub: 'Appeals, hardship & wellbeing' },
+      { lbl: 'Governance / Low Conf', val: govT.length, sub: 'Policy conflicts or low BM25 score' },
+      { lbl: 'Copilot Citation Coverage', val: '100%', sub: 'Pre-attached KMS drafts (CTO Q1)' }
+    ].forEach(function (k) {
+      var card = el('div', 'kpi-card');
+      card.appendChild(el('p', 'kpi-label', k.lbl));
+      card.appendChild(el('p', 'kpi-val', k.val));
+      card.appendChild(el('p', 'kpi-sub', k.sub));
+      ticketKpis.appendChild(card);
+    });
+
+    var filtered = state.tickets.filter(function (t) {
+      if (state.ticketFilter === 'open') return t.status !== 'Resolved';
+      if (state.ticketFilter === 'sensitive') return /Sensitive/i.test(t.trigger);
+      if (state.ticketFilter === 'governance') return /Conflict|Stale|Confidence|Manual/i.test(t.trigger);
+      if (state.ticketFilter === 'resolved') return t.status === 'Resolved';
+      return true;
+    });
+
+    ticketList.textContent = '';
+    if (!filtered.length) {
+      var empty = el('div', 'ticket-card');
+      empty.appendChild(el('p', 'ticket-q', 'No tickets match this filter.'));
+      ticketList.appendChild(empty);
+      return;
+    }
+
+    filtered.forEach(function (t) {
+      var card = el('article', 'ticket-card');
+      var head = el('div', 'ticket-head');
+      var idGrp = el('div', 'ticket-id-group');
+      idGrp.appendChild(el('span', 'ticket-id', t.id));
+      idGrp.appendChild(el('span', 'pill-badge ' + (t.triggerLevel === 'urgent' ? 'bad' : (t.triggerLevel === 'warn' ? 'warn' : 'neutral')), t.trigger));
+      idGrp.appendChild(el('span', 'pill-badge ' + (t.status === 'Resolved' ? 'ok' : 'warn'), t.status));
+      head.appendChild(idGrp);
+      head.appendChild(el('span', 'muted-small', t.createdAt + ' · ' + t.assignedTeam));
+      card.appendChild(head);
+
+      card.appendChild(el('p', 'ticket-q', t.question));
+
+      var meta = el('div', 'ticket-meta');
+      meta.appendChild(el('span', null, 'Requester: ' + t.student));
+      meta.appendChild(el('span', null, 'Service Area: ' + t.category));
+      meta.appendChild(el('span', null, 'Cited Doc: ' + t.citedId));
+      card.appendChild(meta);
+
+      var copilot = el('div', 'copilot-box');
+      copilot.appendChild(el('p', 'copilot-label', 'AI Staff Copilot Draft (' + t.citedTitle + ')'));
+      copilot.appendChild(el('p', null, t.copilotDraft));
+      card.appendChild(copilot);
+
+      var actions = el('div', 'ticket-actions');
+      var resolveBtn = el('button', 'btn-primary', t.status === 'Resolved' ? 'Resolved ✓' : 'Approve & Send Cited Reply');
+      resolveBtn.type = 'button';
+      resolveBtn.disabled = (t.status === 'Resolved');
+      resolveBtn.addEventListener('click', function () {
+        t.status = 'Resolved';
+        updateCounters();
+        pushAuditEntry({
+          question: 'Staff resolved ' + t.id + ': ' + t.question,
+          mode: 'staff-resolved',
+          confidence: 1,
+          sourceId: t.citedId,
+          rule: 'HUMAN_AGENT_APPROVED'
+        });
+        renderTickets();
+      });
+      actions.appendChild(resolveBtn);
+
+      if (t.citedId && t.citedId !== 'NONE') {
+        var openKmsBtn = el('button', 'btn-outline', 'Inspect Policy ' + t.citedId + ' in KMS');
+        openKmsBtn.type = 'button';
+        openKmsBtn.addEventListener('click', function () {
+          state.kmsDataset = 'educonnect';
+          state.kmsSearch = t.citedId;
+          kmsSearch.value = t.citedId;
+          state.kmsStatus = 'all';
+          kmsStatusFilter.value = 'all';
+          switchTab('kms');
+        });
+        actions.appendChild(openKmsBtn);
+      }
+
+      card.appendChild(actions);
+      ticketList.appendChild(card);
+    });
   }
 
-  function loadChips(questions) {
-    chipsEl.textContent = '';
-    (questions || []).slice(0, 6).forEach(function (q) {
-      var b = el('button', 'chip', String(q));
-      b.type = 'button'; b.dir = 'auto';
-      b.addEventListener('click', function () { ask(String(q)); });
-      chipsEl.appendChild(b);
+  /* ---------- TAB 3: Knowledge Repository ---------- */
+  function populateKmsCategories() {
+    kmsCatFilter.textContent = '';
+    kmsCatFilter.appendChild(el('option', null, 'All Categories')).value = 'all';
+    D.CATEGORIES.forEach(function (c) {
+      var o = el('option', null, c.name);
+      o.value = c.id;
+      kmsCatFilter.appendChild(o);
     });
-    if (!chipsEl.children.length) suggestEl.hidden = true;
-    else if (asked) moreBtn.hidden = false;
+  }
+
+  function renderKms() {
+    var isEdu = state.kmsDataset === 'educonnect';
+    kmsBtnEdu.classList.toggle('active', isEdu);
+    kmsBtnUowd.classList.toggle('active', !isEdu);
+    kmsStatusFilter.disabled = !isEdu;
+    kmsCatFilter.disabled = !isEdu;
+
+    if (!isEdu) {
+      renderUowdIndex();
+      return;
+    }
+
+    var verifiedCount = state.articles.filter(function (a) { return a.status === 'verified'; }).length;
+    var flaggedCount = state.articles.length - verifiedCount;
+
+    kmsKpis.textContent = '';
+    [
+      { lbl: 'Total Approved Scope', val: state.articles.length + ' Policies', sub: 'Structured internal KMS articles' },
+      { lbl: 'Verified & Owned', val: verifiedCount, sub: 'Single named owner + recent audit date' },
+      { lbl: 'Governance Alerts', val: flaggedCount, sub: flaggedCount ? 'CTO Q3 conflicts awaiting sign-off' : 'All conflicts reconciled!' },
+      { lbl: 'Linked Public Corpus', val: '240 Pages', sub: 'Live crawled uowdubai.ac.ae pages' }
+    ].forEach(function (k) {
+      var card = el('div', 'kpi-card');
+      card.appendChild(el('p', 'kpi-label', k.lbl));
+      card.appendChild(el('p', 'kpi-val', k.val));
+      card.appendChild(el('p', 'kpi-sub', k.sub));
+      kmsKpis.appendChild(card);
+    });
+
+    var q = state.kmsSearch.trim().toLowerCase();
+    var filtered = state.articles.filter(function (a) {
+      if (state.kmsStatus === 'flagged' && a.status === 'verified') return false;
+      if (state.kmsStatus === 'verified' && a.status !== 'verified') return false;
+      if (state.kmsCategory !== 'all' && a.category !== state.kmsCategory) return false;
+      if (q) {
+        var hay = (a.id + ' ' + a.title + ' ' + a.owner + ' ' + a.section + ' ' + a.summary).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+
+    /* Float flagged articles to top when showing All */
+    filtered.sort(function (a, b) {
+      if (a.status !== 'verified' && b.status === 'verified') return -1;
+      if (a.status === 'verified' && b.status !== 'verified') return 1;
+      return 0;
+    });
+
+    kmsList.textContent = '';
+    if (!filtered.length) {
+      var eCard = el('div', 'kms-card');
+      eCard.appendChild(el('p', 'ticket-q', 'No KMS policies match that search filter.'));
+      kmsList.appendChild(eCard);
+      return;
+    }
+
+    filtered.forEach(function (a) {
+      var flagged = a.status !== 'verified';
+      var card = el('article', 'kms-card' + (flagged ? ' flagged' : ''));
+
+      var head = el('div', 'ticket-head');
+      var idGrp = el('div', 'ticket-id-group');
+      idGrp.appendChild(el('span', 'ticket-id', a.id));
+      idGrp.appendChild(el('span', 'pill-badge neutral', a.categoryLabel));
+      idGrp.appendChild(el('span', 'pill-badge ' + (flagged ? 'bad' : 'ok'),
+        a.status === 'verified' ? 'Verified Owner' : (a.status === 'conflict' ? 'CTO Q3: Contradiction Flagged' : 'CTO Q3: Stale / Unowned')));
+      head.appendChild(idGrp);
+      head.appendChild(el('span', 'muted-small', 'Checked: ' + a.lastVerified));
+      card.appendChild(head);
+
+      card.appendChild(el('h3', 'ticket-q', a.title));
+      card.appendChild(el('p', 'muted-small', (a.reconciledFlag ? a.reconciledSection : a.section) + ' · Owner: ' + a.owner));
+
+      if (flagged && a.conflictNote) {
+        card.appendChild(el('div', 'kms-alert', a.conflictNote));
+      } else {
+        card.appendChild(el('p', 'source-snippet', a.reconciledFlag ? a.reconciledSummary : a.summary));
+      }
+
+      var foot = el('div', 'kms-footer');
+      var btnGrp = el('div', 'ticket-actions');
+      var viewBtn = el('button', 'btn-outline', 'Inspect Full Policy');
+      viewBtn.type = 'button';
+      viewBtn.addEventListener('click', function () { openArticleModal(a.id); });
+      btnGrp.appendChild(viewBtn);
+
+      var testAskBtn = el('button', 'btn-outline', 'Test in Assistant');
+      testAskBtn.type = 'button';
+      testAskBtn.addEventListener('click', function () {
+        setCorpusMode('educonnect');
+        switchTab('assistant');
+        ask(a.sampleQuestion);
+      });
+      btnGrp.appendChild(testAskBtn);
+
+      if (flagged) {
+        var recBtn = el('button', 'btn-warn', 'Reconcile & Assign Owner');
+        recBtn.type = 'button';
+        recBtn.addEventListener('click', function () {
+          a.status = 'verified';
+          a.owner = a.suggestedOwner || 'Office of Academic Governance';
+          a.lastVerified = '23 Nov 2026 (Reconciled Live)';
+          a.reconciledFlag = true;
+          updateCounters();
+          renderCategories();
+          pushAuditEntry({
+            question: 'KMS Governance reconciled ' + a.id + ' -> assigned to ' + a.owner,
+            mode: 'kms-reconciled',
+            confidence: 1,
+            sourceId: a.id,
+            rule: 'CONFLICT_RESOLVED'
+          });
+          renderKms();
+        });
+        btnGrp.appendChild(recBtn);
+      }
+
+      foot.appendChild(btnGrp);
+      card.appendChild(foot);
+      kmsList.appendChild(card);
+    });
+  }
+
+  function renderUowdIndex() {
+    kmsKpis.textContent = '';
+    [
+      { lbl: 'Live Public Corpus', val: '240 Pages', sub: 'Crawled politely from uowdubai.ac.ae' },
+      { lbl: 'Search Engine', val: 'Custom BM25', sub: 'Title boost, synonyms & spelling correction' },
+      { lbl: 'Indexed Excerpts', val: state.uowdPagesCache ? state.uowdPagesCache.chunks.length : '2,500+', sub: 'In-browser retrieval with zero LLM key' },
+      { lbl: 'Verification Policy', val: 'Confirm Official', sub: 'Direct deep links to official university pages' }
+    ].forEach(function (k) {
+      var card = el('div', 'kpi-card');
+      card.appendChild(el('p', 'kpi-label', k.lbl));
+      card.appendChild(el('p', 'kpi-val', k.val));
+      card.appendChild(el('p', 'kpi-sub', k.sub));
+      kmsKpis.appendChild(card);
+    });
+
+    if (state.uowdPagesCache) {
+      drawUowdPages(state.uowdPagesCache);
+      return;
+    }
+
+    kmsList.textContent = '';
+    var loading = el('div', 'kms-card');
+    loading.appendChild(el('p', 'ticket-q', 'Loading 240 crawled UOWD public pages...'));
+    kmsList.appendChild(loading);
+
+    fetch('corpus-lite.json')
+      .then(function (r) { if (!r.ok) throw new Error('not static'); return r.json(); })
+      .then(function (c) {
+        state.uowdPagesCache = c;
+        drawUowdPages(c);
+      })
+      .catch(function () {
+        kmsList.textContent = '';
+        var note = el('div', 'kms-card');
+        note.appendChild(el('h3', 'ticket-q', 'UOWD Live Server Index (240 Pages Active on Backend)'));
+        note.appendChild(el('p', 'source-snippet', 'You are currently running against the local Node server where the full 240-page corpus stays in server memory. Switch Student Assistant to "UOWD Live Campus Index (240 Pages)" or run the static GitHub Pages build to browse every crawled URL directly.'));
+        var go = el('button', 'btn-primary', 'Query UOWD Live Corpus in Assistant →');
+        go.type = 'button';
+        go.addEventListener('click', function () {
+          setCorpusMode('uowd');
+          switchTab('assistant');
+        });
+        note.appendChild(go);
+        kmsList.appendChild(note);
+      });
+  }
+
+  function drawUowdPages(c) {
+    var seen = {};
+    var pages = [];
+    (c.chunks || []).forEach(function (ch) {
+      if (!seen[ch.url]) {
+        seen[ch.url] = true;
+        pages.push({ url: ch.url, title: ch.title || ch.url, snippet: ch.text });
+      }
+    });
+
+    var q = state.kmsSearch.trim().toLowerCase();
+    var filtered = pages.filter(function (p) {
+      if (!q) return true;
+      return (p.title + ' ' + p.url + ' ' + p.snippet).toLowerCase().indexOf(q) !== -1;
+    });
+
+    kmsList.textContent = '';
+    var summary = el('p', 'muted-small', 'Showing ' + Math.min(filtered.length, 40) + ' of ' + filtered.length + ' matching crawled UOWD pages (' + pages.length + ' total URLs indexed).');
+    kmsList.appendChild(summary);
+
+    filtered.slice(0, 40).forEach(function (p) {
+      var card = el('article', 'kms-card');
+      var head = el('div', 'ticket-head');
+      head.appendChild(el('span', 'pill-badge ok', 'Crawled Public Page'));
+      head.appendChild(el('span', 'muted-small', 'Source: uowdubai.ac.ae'));
+      card.appendChild(head);
+      card.appendChild(el('h3', 'ticket-q', p.title));
+      card.appendChild(el('p', 'source-path', p.url));
+      card.appendChild(el('p', 'source-snippet', trimText(p.snippet, 190)));
+      var acts = el('div', 'ticket-actions');
+      var ext = el('a', 'btn-outline', 'Open Live Page ↗');
+      ext.href = p.url; ext.target = '_blank'; ext.rel = 'noopener noreferrer';
+      acts.appendChild(ext);
+      var askBtn = el('button', 'btn-primary', 'Ask About This Topic');
+      askBtn.type = 'button';
+      askBtn.addEventListener('click', function () {
+        setCorpusMode('uowd');
+        switchTab('assistant');
+        ask('Tell me about ' + trimText(p.title.replace(/\|.*$/, ''), 60));
+      });
+      acts.appendChild(askBtn);
+      card.appendChild(acts);
+      kmsList.appendChild(card);
+    });
+  }
+
+  /* ---------- TAB 4: CTO Pilot KPIs, Audit Log & Roadmap ---------- */
+  function renderPilotKpis() {
+    pilotKpiGrid.textContent = '';
+    D.PILOT_METRICS.forEach(function (m) {
+      var c = el('div', 'pilot-card');
+      c.appendChild(el('p', 'kpi-label', m.name));
+      c.appendChild(el('div', 'pilot-val', m.pilot));
+      var track = el('div', 'bar-track');
+      var fill = el('div', 'bar-fill w-' + m.progress);
+      track.appendChild(fill);
+      c.appendChild(track);
+      c.appendChild(el('p', 'pilot-meta', 'Baseline: ' + m.baseline));
+      c.appendChild(el('p', 'pilot-meta', 'Target: ' + m.target));
+      pilotKpiGrid.appendChild(c);
+    });
+  }
+
+  function renderRedactedCell(text, td) {
+    var parts = String(text || '').split(/(\[email\]|\[number\])/g);
+    parts.forEach(function (part) {
+      if (part === '[email]' || part === '[number]') td.appendChild(el('span', 'pii-tag', part));
+      else td.appendChild(document.createTextNode(part));
+    });
+  }
+
+  function renderAuditTable() {
+    auditTableBody.textContent = '';
+    state.auditLog.forEach(function (e) {
+      var tr = el('tr');
+      tr.appendChild(el('td', null, fmtTimeUtc(e.ts)));
+      var qTd = el('td');
+      renderRedactedCell(e.question, qTd);
+      tr.appendChild(qTd);
+
+      var modeCls = e.mode === 'security-blocked' ? 'bad' : (e.mode.indexOf('refused') !== -1 || e.mode.indexOf('escalated') !== -1 ? 'warn' : 'ok');
+      var mTd = el('td');
+      mTd.appendChild(el('span', 'pill-badge ' + modeCls, e.mode));
+      tr.appendChild(mTd);
+
+      tr.appendChild(el('td', null, (e.sourceId ? e.sourceId + ' · ' : '') + e.rule));
+      auditTableBody.appendChild(tr);
+    });
+  }
+
+  function renderRoadmap() {
+    roadmapGrid.textContent = '';
+    D.ROADMAP.forEach(function (r) {
+      var step = el('div', 'road-step');
+      step.appendChild(el('p', 'road-phase', r.phase));
+      step.appendChild(el('h4', null, r.title));
+      step.appendChild(el('p', null, r.owner + ' — ' + r.exit));
+      roadmapGrid.appendChild(step);
+    });
+  }
+
+  /* ---------- Modals (QR & Article Inspector) ---------- */
+  function openQrModal() {
+    var shareUrl = (location.origin && location.origin !== 'null')
+      ? (location.origin + location.pathname.replace(/[^/]*$/, ''))
+      : 'https://parkar4308-cell.github.io/uowd-assistant/';
+    modalQrUrl.textContent = shareUrl;
+    if (window.QR && typeof window.QR.draw === 'function') {
+      window.QR.draw(modalQrCanvas, shareUrl, 280, 4);
+    }
+    qrModal.hidden = false;
+    qrCloseBtn.focus();
+  }
+
+  function openArticleModal(id) {
+    var art = state.articles.filter(function (a) { return a.id === id; })[0];
+    if (!art) {
+      art = {
+        id: id,
+        title: 'Student Wellbeing & Confidential Counselling Charter (§1.1)',
+        categoryLabel: 'Safeguarding & Student Care',
+        section: 'Student Care Policy 2026 · Section 1.1',
+        owner: 'Director of Student Wellbeing',
+        lastVerified: '20 Nov 2026',
+        status: 'verified',
+        summary: 'Mental health, distress, and safeguarding disclosures immediately bypass automated answers and route confidentially to Room G-14 Counsellors or the 24/7 Crisis Support Line (800-WELL-EDU).',
+        bullets: ['Never answered by generative AI.', 'Priority human escalation logged anonymously without transcript details.']
+      };
+    }
+    artModalId.textContent = art.id + ' · ' + art.categoryLabel;
+    artModalTitle.textContent = art.title;
+    artModalBody.textContent = '';
+
+    var meta = el('p', 'muted-small', (art.reconciledFlag ? art.reconciledSection : art.section) + ' · Owner: ' + art.owner + ' · Verified: ' + art.lastVerified);
+    artModalBody.appendChild(meta);
+    if (art.status !== 'verified' && art.conflictNote) {
+      artModalBody.appendChild(el('div', 'kms-alert', art.conflictNote));
+    }
+    artModalBody.appendChild(el('p', null, art.reconciledFlag ? art.reconciledSummary : art.summary));
+    var ul = el('ul');
+    (art.bullets || []).forEach(function (b) { ul.appendChild(el('li', null, b)); });
+    artModalBody.appendChild(ul);
+    articleModal.hidden = false;
+    artCloseBtn.focus();
+  }
+
+  /* ---------- Composer & Init ---------- */
+  function autosize() {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight + 2, 130) + 'px';
   }
 
   function init() {
+    renderPersonas();
+    renderCategories();
+    populateKmsCategories();
+    updateCounters();
+    setCorpusMode('educonnect');
+    renderTickets();
+    renderKms();
+    renderPilotKpis();
+    renderAuditTable();
+    renderRoadmap();
+
+    /* Wire Tabs */
+    Object.keys(TAB_MAP).forEach(function (k) {
+      TAB_MAP[k].btn.addEventListener('click', function () { switchTab(k); });
+    });
+
+    /* Wire Engine Switch */
+    modeEduBtn.addEventListener('click', function () { setCorpusMode('educonnect'); });
+    modeUowdBtn.addEventListener('click', function () { setCorpusMode('uowd'); });
+    clearCatBtn.addEventListener('click', function () {
+      state.selectedCategory = null;
+      renderCategories();
+      renderSuggestions();
+    });
+
+    clearThreadBtn.addEventListener('click', function () {
+      thread.textContent = '';
+      state.messages = [];
+      clearThreadBtn.hidden = true;
+    });
+
+    /* Wire Composer */
     form.addEventListener('submit', function (e) { e.preventDefault(); ask(input.value); });
     input.addEventListener('input', autosize);
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(input.value); }
     });
-    moreBtn.addEventListener('click', function () {
-      var open = moreBtn.getAttribute('aria-expanded') === 'true';
-      chipsEl.hidden = open;
-      suggestEl.classList.toggle('collapsed', open);
-      moreBtn.setAttribute('aria-expanded', String(!open));
-      if (!open) { scrollTo(suggestEl, 'nearest'); var first = chipsEl.querySelector('button'); if (first) first.focus(); }
+
+    /* Wire Ticket Filters */
+    Array.prototype.forEach.call($('ticketFilters').children, function (b) {
+      b.addEventListener('click', function () {
+        state.ticketFilter = b.dataset.tfilter;
+        Array.prototype.forEach.call($('ticketFilters').children, function (x) { x.classList.toggle('active', x === b); });
+        renderTickets();
+      });
     });
-    fetch('/api/suggestions').then(function (r) { return r.json(); })
-      .then(function (d) { loadChips(d.questions); })
-      .catch(function () { suggestEl.hidden = true; setStatus('Suggested questions are unavailable, but you can still type your own.'); });
-    fetch('/api/info').then(function (r) { return r.json(); })
+
+    /* Wire KMS Controls */
+    kmsBtnEdu.addEventListener('click', function () { state.kmsDataset = 'educonnect'; renderKms(); });
+    kmsBtnUowd.addEventListener('click', function () { state.kmsDataset = 'uowd'; renderKms(); });
+    kmsSearch.addEventListener('input', function () { state.kmsSearch = kmsSearch.value; renderKms(); });
+    kmsStatusFilter.addEventListener('change', function () { state.kmsStatus = kmsStatusFilter.value; renderKms(); });
+    kmsCatFilter.addEventListener('change', function () { state.kmsCategory = kmsCatFilter.value; renderKms(); });
+
+    /* Wire Modals */
+    qrOpenBtn.addEventListener('click', openQrModal);
+    qrCloseBtn.addEventListener('click', function () { qrModal.hidden = true; });
+    qrCloseBtnBottom.addEventListener('click', function () { qrModal.hidden = true; });
+    artCloseBtn.addEventListener('click', function () { articleModal.hidden = true; });
+    qrModal.addEventListener('click', function (e) { if (e.target === qrModal) qrModal.hidden = true; });
+    articleModal.addEventListener('click', function (e) { if (e.target === articleModal) articleModal.hidden = true; });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { qrModal.hidden = true; articleModal.hidden = true; }
+    });
+
+    /* Sync live UOWD metadata & suggestions */
+    fetch('/api/suggestions')
+      .then(function (r) { return r.json(); })
       .then(function (d) {
-        var date = d.generatedAt ? fmtDate(d.generatedAt) : '';
-        $('footnote').textContent = 'Answers come from the public UOWD website' + (date ? ', checked ' + date : '') +
-          '. Not official. Do not enter personal data.' + (d.pages ? ' (' + d.pages + ' pages indexed)' : '');
-      }).catch(function () {});
+        if (d && Array.isArray(d.questions) && d.questions.length) {
+          state.uowdChips = d.questions;
+          if (state.corpusMode === 'uowd') renderSuggestions();
+        }
+      })
+      .catch(function () {});
+
+    fetch('/api/info')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.pages) {
+          corpusBadge.textContent = '24 KMS Policies · UOWD ' + d.pages + ' Pages Live';
+          modeUowdBtn.textContent = 'UOWD Live Campus Index (' + d.pages + ' Pages)';
+        }
+      })
+      .catch(function () {});
   }
 
-  if (/[?&]mock=1(&|$)/.test(location.search)) {
-    var s = document.createElement('script');
-    s.src = 'mock-api.js';
-    s.onload = init; s.onerror = init;
-    document.head.appendChild(s);
-  } else init();
+  init();
 })();
