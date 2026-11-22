@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UOWD Assistant QR</title>
+<link rel="stylesheet" href="qr.css">
+</head>
+<body>
+<main class="qrpage">
+  <p class="badge">Unofficial student prototype</p>
+  <h1>Scan to ask UOWD Assistant</h1>
+  <div class="frame">
+    <canvas id="qr" width="600" height="600" role="img" aria-label="QR code linking to the UOWD Assistant"></canvas>
+  </div>
+  <p class="or">or open</p>
+  <p id="url" class="url"></p>
+  <p class="hint">Phone and laptop must be on the same Wi-Fi or hotspot</p>
+</main>
+<script src="qr.js"></script>
+<script src="qr-page.js"></script>
+</body>
+</html>

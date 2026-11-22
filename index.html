@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111a2b" media="(prefers-color-scheme: dark)">
+<title>UOWD Assistant</title>
+<meta name="description" content="Unofficial student prototype: ask questions about the University of Wollongong in Dubai, answered only from the public website.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#question">Skip to question box</a>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">U</span>
+      <div class="brand-text">
+        <h1>UOWD Assistant</h1>
+        <p class="sub">Answers from the public UOWD website</p>
+      </div>
+    </div>
+    <p class="badge"><span class="badge-dot" aria-hidden="true"></span>Unofficial student prototype</p>
+  </header>
+
+  <main class="main" id="main">
+    <section id="empty" class="welcome" aria-labelledby="welcome-title">
+      <h2 id="welcome-title">Ask about UOWD</h2>
+      <p>I answer only from public pages of <a href="https://www.uowdubai.ac.ae" target="_blank" rel="noopener noreferrer">uowdubai.ac.ae</a> and show where each answer came from. If I am not sure, I say so and point you to a person.</p>
+      <ul class="promises">
+        <li>Sources shown for every answer</li>
+        <li>No guessing about personal or account questions</li>
+        <li>Questions are logged anonymously, so do not type personal data</li>
+      </ul>
+    </section>
+
+    <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation"></div>
+
+    <section class="suggest" aria-labelledby="suggest-title">
+      <div class="suggest-head">
+        <h2 id="suggest-title" class="suggest-title">Popular questions</h2>
+        <button id="moreBtn" class="more-btn" type="button" aria-expanded="true" aria-controls="chips" hidden>More questions</button>
+      </div>
+      <div id="chips" class="chips"></div>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </main>
+
+  <form id="form" class="composer" autocomplete="off">
+    <label for="question" class="sr">Your question about UOWD</label>
+    <textarea id="question" rows="1" maxlength="400" dir="auto" placeholder="Ask a question about UOWD" enterkeyhint="send" aria-describedby="composer-hint"></textarea>
+    <button id="send" type="submit" class="send" aria-label="Send question">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false"><path d="M4 12h13M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <p id="composer-hint" class="sr">Press Enter to send, Shift and Enter for a new line. Do not enter personal data.</p>
+  </form>
+
+  <footer class="foot">
+    <p id="footnote">Answers come from the public UOWD website. Not official. Do not enter personal data.</p>
+    <p><a href="https://www.uowdubai.ac.ae" target="_blank" rel="noopener noreferrer">Official UOWD website</a></p>
+  </footer>
+</div>
+<script src="engine.js"></script>
+<script src="static-api.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
