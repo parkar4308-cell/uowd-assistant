@@ -4,229 +4,227 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0a2e36">
-<title>EduConnect Solutions — KMS &amp; AI Support Pilot (CSIT205)</title>
-<meta name="description" content="CSIT205 prototype for EduConnect Solutions: enterprise knowledge management system, deterministic RAG assistant, human ticket escalation, and UOWD 240-page live campus corpus.">
+<title>EduConnect — Student Services &amp; Support Portal</title>
+<meta name="description" content="CSIT205 prototype for EduConnect Solutions: grounded university policy assistant, role-based staff escalation console, and live 240-page UOWD campus search.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip" href="#question">Skip to assistant input</a>
+<a class="skip" href="#question">Skip to question input</a>
 
 <div class="shell">
-  <!-- Executive Top Header -->
+  <!-- Single Slim Top Navigation Bar -->
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
         <span class="logo" aria-hidden="true">EC</span>
         <div class="brand-text">
-          <div class="brand-row">
-            <h1>EduConnect Solutions</h1>
-            <span class="course-pill">CSIT205 Pilot Prototype</span>
-          </div>
-          <p class="sub">Knowledge Management System, Deterministic RAG &amp; Support Escalation Portal</p>
+          <h1>EduConnect</h1>
+          <p id="portalSubtitle" class="sub">Student Services Portal</p>
         </div>
       </div>
 
+      <!-- Role-Gated Center Navigation -->
+      <nav class="nav-center" aria-label="Portal views">
+        <!-- Student-Only Navigation (Default) -->
+        <div id="studentNav" class="nav-pills" role="tablist" aria-label="Student views">
+          <button id="tabBtnAssistant" class="nav-pill active" type="button" role="tab" aria-selected="true" data-tab="assistant">Assistant</button>
+          <button id="tabBtnMyRequests" class="nav-pill" type="button" role="tab" aria-selected="false" data-tab="requests">
+            My Requests <span id="myReqBadge" class="mini-badge">1</span>
+          </button>
+        </div>
+
+        <!-- Staff / CTO Admin Navigation (Strictly Hidden Until Signed In) -->
+        <div id="adminNav" class="nav-pills" role="tablist" aria-label="Staff and CTO console views" hidden>
+          <button id="tabBtnTickets" class="nav-pill" type="button" role="tab" aria-selected="false" data-tab="tickets">
+            Ticket Queue <span id="openTicketBadge" class="mini-badge warn">4</span>
+          </button>
+          <button id="tabBtnKms" class="nav-pill" type="button" role="tab" aria-selected="false" data-tab="kms">
+            Knowledge Base <span id="conflictBadge" class="mini-badge bad">3</span>
+          </button>
+          <button id="tabBtnCto" class="nav-pill" type="button" role="tab" aria-selected="false" data-tab="cto">
+            CTO &amp; Audit Log
+          </button>
+        </div>
+      </nav>
+
+      <!-- Compact Right Utilities -->
       <div class="topbar-actions">
-        <span id="corpusBadge" class="status-pill">24 KMS Policies · UOWD 240 Pages Live</span>
-        <button id="qrOpenBtn" type="button" class="btn-ghost-light">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3zM14 19h2v2h-2zM19 14h2v2h-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-          <span>Project QR</span>
+        <button id="corpusSwitchBtn" type="button" class="btn-topbar" title="Switch active knowledge source">
+          <span id="corpusPillLabel">Source: EduConnect KMS</span>
         </button>
+        <button id="qrOpenBtn" type="button" class="btn-topbar" aria-label="Show QR code for mobile access">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM18 18h3v3h-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          <span>QR</span>
+        </button>
+        <button id="authActionBtn" type="button" class="btn-topbar-gold">Staff Sign In</button>
       </div>
     </div>
-
-    <!-- Quick Demo Role Switcher (matches enterprise portal workflow, no login lock) -->
-    <div class="persona-strip">
-      <div class="persona-inner">
-        <span class="persona-label">Demo Role View:</span>
-        <div id="personaBar" class="persona-pills" role="group" aria-label="Quick demo role switcher"></div>
-      </div>
-    </div>
-
-    <!-- Primary 4-Tab Portal Navigation -->
-    <nav class="tabs-bar" aria-label="Portal workspaces">
-      <div class="tabs-inner" role="tablist">
-        <button id="tabBtnAssistant" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="panelAssistant" data-tab="assistant">
-          <span class="tab-title">Student Assistant</span>
-          <span class="tab-sub">EduConnect Assist</span>
-        </button>
-        <button id="tabBtnTickets" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panelTickets" data-tab="tickets">
-          <span class="tab-title">Staff Ticket Queue <span id="openTicketBadge" class="count-pill warn">3 Open</span></span>
-          <span class="tab-sub">EduConnect Guard &amp; Copilot</span>
-        </button>
-        <button id="tabBtnKms" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panelKms" data-tab="kms">
-          <span class="tab-title">Knowledge Repository <span id="conflictBadge" class="count-pill bad">3 Flagged</span></span>
-          <span class="tab-sub">Governance &amp; UOWD Index</span>
-        </button>
-        <button id="tabBtnCto" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="panelCto" data-tab="cto">
-          <span class="tab-title">CTO Pilot &amp; Audit Log</span>
-          <span class="tab-sub">5 KPIs, Architecture &amp; Privacy</span>
-        </button>
-      </div>
-    </nav>
   </header>
 
   <main class="workspace">
-    <!-- ==================== TAB 1: STUDENT ASSISTANT ==================== -->
+    <!-- ==================== STUDENT TAB 1: ASSISTANT ==================== -->
     <section id="panelAssistant" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnAssistant">
-      <!-- Hero Banner -->
-      <div class="hero">
-        <div class="hero-copy">
-          <p class="hero-kicker"><span class="kicker-dot" aria-hidden="true"></span>EDUCONNECT ASSIST · GROUNDED INSTITUTIONAL RAG</p>
-          <h2>Clear answers from <em>approved</em> policies &mdash; never guessed.</h2>
-          <p class="hero-lead">Answers cite verified institutional KMS sections with named owners. Sensitive topics (appeals, financial hardship, wellbeing), personal PII, or low-confidence queries trigger deterministic guardrails and human ticket handoff.</p>
+      <!-- Centered Spacious Hero (collapses smoothly once chatting starts) -->
+      <div id="heroSection" class="hero-clean">
+        <div class="hero-inner">
+          <p class="hero-kicker">OFFICIAL UNIVERSITY POLICIES &middot; GROUNDED RAG</p>
+          <h2>Clear answers from <em>official</em> sources.</h2>
+          <p class="hero-lead">Verified answers with section citations. Sensitive appeals, financial hardship, and personal records route safely to human support staff.</p>
 
-          <div class="engine-switch" role="group" aria-label="Knowledge corpus selector">
-            <button id="modeEduConnect" type="button" class="engine-btn active">EduConnect Approved KMS (24 Policies)</button>
-            <button id="modeUowd" type="button" class="engine-btn">UOWD Live Campus Index (240 Pages)</button>
+          <!-- Clean Corpus Selector + Integrated Search Form -->
+          <div class="corpus-toggle-row" role="group" aria-label="Knowledge corpus selector">
+            <button id="modeEduConnect" type="button" class="seg-btn active">EduConnect Policies (24)</button>
+            <button id="modeUowd" type="button" class="seg-btn">UOWD Live Website (240 Pages)</button>
           </div>
-          <p class="engine-hint" id="engineHint">Active: EduConnect KMS primary + automatic fallback to UOWD 240-page BM25 corpus for campus queries.</p>
-        </div>
 
-        <aside class="hero-card" aria-label="Active session guardrails">
-          <p class="hero-card-kicker">Active Session Guardrails</p>
-          <p id="personaTag" class="persona-active">Student Self-Service · CSIT Cohort</p>
-          <ul class="guard-list">
-            <li><strong>Deterministic Citations:</strong> Policy ID, section &amp; last verified date attached</li>
-            <li><strong>Zero Student Record Access:</strong> Phases 0&ndash;3 exclude GPA, grades &amp; balances</li>
-            <li><strong>Automatic PII Scrubbing:</strong> Emails, IDs &amp; phones redacted pre-log</li>
-            <li><strong>Human Ticket Fallback:</strong> 1-click escalation sends draft context to staff</li>
-          </ul>
-        </aside>
+          <form id="heroForm" class="hero-search" autocomplete="off">
+            <label for="heroQuestion" class="sr">Ask a question about policies, tuition, or UOWD</label>
+            <input id="heroQuestion" type="text" maxlength="400" placeholder="Ask about late penalties, enrollment, tuition refunds, or UOWD fees...">
+            <button id="heroSendBtn" type="submit" class="btn-hero-ask">Ask</button>
+          </form>
+
+          <!-- Concise Starter Chips -->
+          <div id="chips" class="starter-chips" aria-label="Suggested questions"></div>
+        </div>
       </div>
 
-      <!-- Browse by Service Category (2x3 Grid) -->
-      <section class="section-block" aria-labelledby="catHeading">
-        <div class="section-head">
+      <!-- Browse by Service Grid (hidden once conversation starts) -->
+      <section id="browseSection" class="browse-section" aria-labelledby="catHeading">
+        <div class="browse-head">
           <div>
-            <h3 id="catHeading">Browse by Student Service Area</h3>
-            <p class="section-sub">Click a service area to inspect verified questions, or test our Guardrail Stress-Test above.</p>
+            <h3 id="catHeading">Browse by service</h3>
+            <p id="browseSub" class="muted-small">Choose a university department or test a guardrail scenario.</p>
           </div>
-          <button id="clearCatBtn" type="button" class="btn-outline" hidden>Show all categories</button>
+          <div class="browse-tools">
+            <button id="clearCatBtn" type="button" class="btn-outline" hidden>All topics</button>
+            <button id="guardQuickBtn" type="button" class="btn-guard-demo">Test Guardrail / Appeal</button>
+          </div>
         </div>
         <div id="categoryGrid" class="category-grid"></div>
       </section>
 
-      <!-- Assistant Thread & Prompt Suggestions -->
-      <section class="assistant-stage" aria-label="Interactive Q and A">
-        <div id="suggestSection" class="suggest-box">
-          <div class="suggest-head">
-            <div>
-              <h3 id="suggestTitle" class="suggest-title">Recommended Student Questions</h3>
-              <p id="suggestSub" class="suggest-sub">Select a prompt below or type any institutional / UOWD question at the bottom.</p>
-            </div>
-            <div class="suggest-controls">
-              <button id="clearThreadBtn" type="button" class="btn-outline" hidden>Clear thread</button>
-              <button id="moreBtn" class="btn-outline" type="button" aria-expanded="true" aria-controls="chips" hidden>Show suggestions</button>
-            </div>
-          </div>
-          <div id="chips" class="chips"></div>
+      <!-- Active Conversation Stage (hidden until first question is asked) -->
+      <section id="chatStage" class="chat-stage" aria-label="Conversation" hidden>
+        <div class="chat-bar">
+          <button id="backHomeBtn" type="button" class="btn-outline">&larr; Back to all topics</button>
+          <span id="activeCorpusTag" class="pill-badge neutral">EduConnect Approved Policies</span>
         </div>
 
         <p id="status" class="status" role="status" aria-live="polite"></p>
-        <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation history"></div>
-      </section>
+        <div id="thread" class="thread" role="log" aria-live="polite" aria-relevant="additions"></div>
 
-      <!-- Composer -->
-      <form id="form" class="composer" autocomplete="off">
-        <div class="composer-wrap">
-          <label for="question" class="sr">Ask EduConnect Assistant or UOWD Campus Corpus</label>
-          <textarea id="question" rows="1" maxlength="400" dir="auto" placeholder="Ask about late penalties, enrollment, tuition refunds, appeals, or live UOWD campus info..." enterkeyhint="send" aria-describedby="composerHint"></textarea>
-          <button id="send" type="submit" class="send-btn" aria-label="Ask assistant">
-            <span>Ask</span>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-        </div>
-        <p id="composerHint" class="composer-hint">EduConnect Guard automatically redacts emails/IDs before logging. Sensitive topics escalate directly to staff.</p>
-      </form>
+        <!-- Follow-up Composer (Only shown inside active conversation!) -->
+        <form id="form" class="composer" autocomplete="off">
+          <div class="composer-wrap">
+            <label for="question" class="sr">Ask a follow-up question</label>
+            <textarea id="question" rows="1" maxlength="400" dir="auto" placeholder="Ask a follow-up question (emails & IDs are redacted automatically)..." enterkeyhint="send"></textarea>
+            <button id="send" type="submit" class="send-btn" aria-label="Send question">Ask</button>
+          </div>
+        </form>
+      </section>
     </section>
 
-    <!-- ==================== TAB 2: STAFF TICKET QUEUE ==================== -->
-    <section id="panelTickets" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnTickets" hidden>
-      <div class="panel-banner">
+    <!-- ==================== STUDENT TAB 2: MY REQUESTS ==================== -->
+    <section id="panelMyRequests" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnMyRequests" hidden>
+      <div class="panel-header-clean">
         <div>
-          <p class="panel-kicker">CTO Q1, Q4 &amp; Q8 SOLUTION · EDUCONNECT GUARD</p>
-          <h2>Escalated Support Ticket Queue &amp; Staff AI Copilot</h2>
-          <p>When guardrails decline a sensitive request or confidence falls below threshold, tickets arrive here with the exact retrieved KMS policy and a pre-drafted reply &mdash; eliminating manual cross-system searches.</p>
+          <p class="panel-kicker">SIGNED IN AS LAYLA A. &middot; STUDENT ID S2041877</p>
+          <h2>My Support Requests</h2>
+          <p class="muted-small">Track requests escalated from EduConnect Guard or Assistant. Only your own tickets are visible under student access controls.</p>
+        </div>
+        <button id="newAskFromReqBtn" type="button" class="btn-primary">Ask Assistant</button>
+      </div>
+      <div id="myRequestsList" class="ticket-list"></div>
+    </section>
+
+    <!-- ==================== RBAC BLOCK NOTICE (IF STUDENT VISITS #admin) ==================== -->
+    <section id="panelRbacDenied" class="tab-panel" hidden>
+      <div class="rbac-card">
+        <p class="panel-kicker">ROLE-BASED ACCESS CONTROL (CTO Q6)</p>
+        <h2>Staff or CTO Credentials Required</h2>
+        <p>The Support Ticket Queue, Knowledge Governance Repository, and CTO Security Audit Log are restricted to authenticated staff and administrators. Student accounts may only view the Assistant and their own Support Requests.</p>
+        <div class="rbac-actions">
+          <button id="rbacSignInBtn" type="button" class="btn-primary">Sign In as Staff / CTO</button>
+          <button id="rbacBackStudentBtn" type="button" class="btn-outline">Return to Student Portal</button>
         </div>
       </div>
+    </section>
 
+    <!-- ==================== ADMIN TAB 1: STAFF TICKET QUEUE ==================== -->
+    <section id="panelTickets" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnTickets" hidden>
+      <div class="panel-header-clean">
+        <div>
+          <p class="panel-kicker">STAFF CONSOLE &middot; EDUCONNECT GUARD &amp; COPILOT</p>
+          <h2>Escalated Student Ticket Queue</h2>
+          <p class="muted-small">Review student escalations with pre-attached KMS policy citations and AI Copilot draft responses.</p>
+        </div>
+      </div>
       <div id="ticketKpis" class="kpi-strip"></div>
-
       <div class="filter-bar" id="ticketFilters" role="group" aria-label="Filter support tickets">
-        <button type="button" class="filter-pill active" data-tfilter="all">All Tickets</button>
+        <button type="button" class="filter-pill active" data-tfilter="all">All</button>
         <button type="button" class="filter-pill" data-tfilter="open">Open &amp; In Review</button>
         <button type="button" class="filter-pill" data-tfilter="sensitive">Guardrail: Sensitive</button>
-        <button type="button" class="filter-pill" data-tfilter="governance">KMS Conflict / Low Conf</button>
+        <button type="button" class="filter-pill" data-tfilter="governance">Conflict / Low Conf</button>
         <button type="button" class="filter-pill" data-tfilter="resolved">Resolved</button>
       </div>
-
       <div id="ticketList" class="ticket-list"></div>
     </section>
 
-    <!-- ==================== TAB 3: KNOWLEDGE REPOSITORY ==================== -->
+    <!-- ==================== ADMIN TAB 2: KNOWLEDGE GOVERNANCE ==================== -->
     <section id="panelKms" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnKms" hidden>
-      <div class="panel-banner">
+      <div class="panel-header-clean">
         <div>
-          <p class="panel-kicker">CTO Q2 &amp; Q3 SOLUTION · SINGLE SOURCE OF TRUTH</p>
-          <h2>Knowledge Repository &amp; Document Governance</h2>
-          <p>Addresses EduConnect's fragmented helpdesk folders: enforces named document owners, verification timestamps, conflict detection, plus live inspection of the 240 crawled UOWD public pages.</p>
+          <p class="panel-kicker">STAFF CONSOLE &middot; DOCUMENT GOVERNANCE (CTO Q2 &amp; Q3)</p>
+          <h2>Knowledge Repository &amp; Ownership</h2>
+          <p class="muted-small">Assign single owners, resolve conflicting legacy PDFs, or inspect the 240 live UOWD public pages.</p>
         </div>
-        <div class="kms-source-switch" role="group" aria-label="Repository dataset switch">
-          <button id="kmsBtnEdu" type="button" class="btn-tab-sub active">EduConnect KMS (24 Policies)</button>
-          <button id="kmsBtnUowd" type="button" class="btn-tab-sub">UOWD Live Index (240 Pages)</button>
+        <div class="kms-source-switch" role="group" aria-label="Repository dataset">
+          <button id="kmsBtnEdu" type="button" class="btn-tab-sub active">EduConnect Policies (24)</button>
+          <button id="kmsBtnUowd" type="button" class="btn-tab-sub">UOWD Live Index (240)</button>
         </div>
       </div>
-
       <div id="kmsKpis" class="kpi-strip"></div>
-
       <div class="kms-controls">
-        <label for="kmsSearch" class="sr">Search repository documents</label>
-        <input id="kmsSearch" type="search" class="kms-search" placeholder="Search by policy ID (e.g. KMS-POL-309), title, owner, or UOWD page URL...">
+        <label for="kmsSearch" class="sr">Search repository</label>
+        <input id="kmsSearch" type="search" class="kms-search" placeholder="Search by ID (KMS-POL-309), title, owner, or UOWD URL...">
         <select id="kmsStatusFilter" class="kms-select" aria-label="Filter by governance status">
           <option value="all">All Governance States</option>
-          <option value="flagged">Conflicts &amp; Stale Flagged Only</option>
-          <option value="verified">Verified &amp; Owned Only</option>
+          <option value="flagged">Conflicts &amp; Stale Only</option>
+          <option value="verified">Verified Only</option>
         </select>
-        <select id="kmsCatFilter" class="kms-select" aria-label="Filter by service category">
+        <select id="kmsCatFilter" class="kms-select" aria-label="Filter by category">
           <option value="all">All Categories</option>
         </select>
       </div>
-
       <div id="kmsList" class="kms-list"></div>
     </section>
 
-    <!-- ==================== TAB 4: CTO PILOT & AUDIT LOG ==================== -->
+    <!-- ==================== ADMIN TAB 3: CTO PILOT & AUDIT LOG ==================== -->
     <section id="panelCto" class="tab-panel" role="tabpanel" aria-labelledby="tabBtnCto" hidden>
-      <div class="panel-banner">
+      <div class="panel-header-clean">
         <div>
-          <p class="panel-kicker">CTO Q5&ndash;Q10 EXECUTIVE BRIEFING</p>
-          <h2>Pilot Evaluation Metrics, Architecture &amp; Security Audit Log</h2>
-          <p>Tracks all five pilot success criteria requested by the EduConnect CTO, live PII-redacted audit events from this browser session, and the costed RAG vs. fine-tuning architecture.</p>
+          <p class="panel-kicker">EXECUTIVE CONSOLE &middot; CTO Q5&ndash;Q10 BRIEFING</p>
+          <h2>Pilot Evaluation Metrics &amp; Security Audit Trail</h2>
+          <p class="muted-small">Five CTO success metrics, live PII-redacted security events from this session, RAG architecture rationale, and monthly cloud costs.</p>
         </div>
       </div>
 
-      <h3 class="subhead">1. CTO's Five Pilot Success Measures (Baseline vs. Pilot Target)</h3>
+      <h3 class="subhead">CTO's Five Pilot Success Measures</h3>
       <div id="pilotKpiGrid" class="pilot-kpi-grid"></div>
 
       <div class="cto-split">
         <section class="cto-card" aria-labelledby="auditHeading">
           <div class="cto-card-head">
             <div>
-              <h3 id="auditHeading">2. Live PII-Redacted Security Audit Trail</h3>
-              <p class="muted-small">Every question you ask in Student Assistant appends here in real time. Zero IPs stored; emails &amp; student IDs redacted deterministically.</p>
+              <h3 id="auditHeading">Live PII-Redacted Security Audit Trail</h3>
+              <p class="muted-small">Zero IPs logged; student emails and numeric IDs scrubbed automatically.</p>
             </div>
-            <span id="auditCountBadge" class="count-pill ok">5 Events</span>
+            <span id="auditCountBadge" class="mini-badge ok">5</span>
           </div>
           <div class="table-scroll">
             <table class="data-table">
               <thead>
-                <tr>
-                  <th>Time (UTC)</th>
-                  <th>Redacted Query</th>
-                  <th>Mode / Guardrail</th>
-                  <th>Rule &amp; Citation</th>
-                </tr>
+                <tr><th>Time (UTC)</th><th>Redacted Query</th><th>Mode</th><th>Rule &amp; Ref</th></tr>
               </thead>
               <tbody id="auditTableBody"></tbody>
             </table>
@@ -234,66 +232,60 @@
         </section>
 
         <section class="cto-card" aria-labelledby="archHeading">
-          <h3 id="archHeading">3. Deterministic 5-Stage RAG Pipeline</h3>
+          <h3 id="archHeading">5-Stage Deterministic RAG Architecture</h3>
           <ol class="flow-steps">
-            <li><strong>Approved Ingestion:</strong> Indexed KMS docs with owner metadata (never raw student records).</li>
-            <li><strong>Hybrid BM25 / Vector Retrieval:</strong> Top chunks scored against confidence threshold.</li>
-            <li><strong>Deterministic Guardrails (Non-LLM):</strong> Regex + rule layer intercepts appeals, hardship, wellbeing, PII &amp; prompt injections before LLM generation.</li>
-            <li><strong>Bounded Edge LLM / Extractive Quote:</strong> Answers strictly from retrieved chunks with inline section citations.</li>
-            <li><strong>Ticketing Handoff + Audit:</strong> Low-confidence/sensitive queries package context into Staff Ticket Queue &amp; redact PII pre-log.</li>
+            <li><strong>Approved Ingestion:</strong> Owned KMS articles only; student records excluded (Phases 0&ndash;3).</li>
+            <li><strong>BM25 / Vector Retrieval:</strong> Top chunks checked against confidence threshold.</li>
+            <li><strong>Deterministic Guardrails:</strong> Appeals, hardship, wellbeing, PII &amp; prompt injections intercepted pre-LLM.</li>
+            <li><strong>Grounded Reply:</strong> Section ID, owner &amp; verification timestamp cited in answer.</li>
+            <li><strong>Ticket Escalation + Audit:</strong> Context handed to staff queue with scrubbed log entry.</li>
           </ol>
-
           <div class="callout-uowd">
-            <strong>UAE Residency Note (Verified 22 Nov 2026):</strong> AWS Bedrock Managed Knowledge Bases is not yet confirmed in <code>me-central-1</code> (UAE), whereas Azure AI Search supports UAE North &mdash; making Azure the lower-risk UAE residency deployment target.
+            <strong>UAE Data Residency (22 Nov 2026):</strong> Azure AI Search supports UAE North; AWS Bedrock Managed KBs is not yet confirmed in <code>me-central-1</code>.
           </div>
         </section>
       </div>
 
       <div class="cto-split">
         <section class="cto-card" aria-labelledby="ragVsFtHeading">
-          <h3 id="ragVsFtHeading">4. Why RAG Wins Over Fine-Tuning (CTO Q3 &amp; Q9)</h3>
+          <h3 id="ragVsFtHeading">RAG vs. Fine-Tuning (CTO Q3 &amp; Q9)</h3>
           <div class="table-scroll">
             <table class="data-table">
-              <thead>
-                <tr><th>Criterion</th><th>RAG (Recommended)</th><th>Fine-Tuning (Rejected)</th></tr>
-              </thead>
+              <thead><tr><th>Factor</th><th>RAG (Chosen)</th><th>Fine-Tuning</th></tr></thead>
               <tbody>
-                <tr><td><strong>Policy Updates</strong></td><td>Re-index changed article in seconds</td><td>Requires costly retraining per policy update</td></tr>
-                <tr><td><strong>Citations &amp; Audit</strong></td><td>Retrieved section ID cited by construction</td><td>Cannot reliably verify source clause</td></tr>
-                <tr><td><strong>Access &amp; Privacy</strong></td><td>Zero PII in weights; strict RBAC filtering</td><td>Baked-in training facts cannot be role-trimmed</td></tr>
-                <tr><td><strong>Client Team Fit</strong></td><td>Maintainable by existing EduConnect IT devs</td><td>Needs ML engineers (CTO Q9: none in house)</td></tr>
+                <tr><td><strong>Updates</strong></td><td>Re-index policy in seconds</td><td>Must retrain weights</td></tr>
+                <tr><td><strong>Citations</strong></td><td>Exact clause cited by design</td><td>No reliable source tracing</td></tr>
+                <tr><td><strong>Access Control</strong></td><td>Role-filtered repository</td><td>Facts baked into weights</td></tr>
+                <tr><td><strong>Skills Needed</strong></td><td>Existing IT devs</td><td>ML engineers (none in house)</td></tr>
               </tbody>
             </table>
           </div>
         </section>
 
         <section class="cto-card" aria-labelledby="costHeading">
-          <h3 id="costHeading">5. Monthly Cloud Cost Model (10,000 Queries/Mo [Assumed])</h3>
+          <h3 id="costHeading">Monthly Cloud Cost (10k Queries/Mo [Assumed])</h3>
           <div class="table-scroll">
             <table class="data-table">
-              <thead>
-                <tr><th>Tier Scenario</th><th>LLM + Embeddings + Vector Search</th><th>Est. Total / Month</th></tr>
-              </thead>
+              <thead><tr><th>Scenario</th><th>Breakdown</th><th>Total / Mo</th></tr></thead>
               <tbody>
-                <tr><td><strong>Lowest (Gemini 3.1 Flash-Lite)</strong></td><td>$7.50 LLM + $0.42 embed + $10.25 search</td><td><strong>~$18 / month</strong></td></tr>
-                <tr><td><strong>Recommended (Gemini 3.8 Flash)</strong></td><td>$20.63 LLM + $0.42 embed + $10.25 search</td><td><strong>~$31 / month</strong></td></tr>
-                <tr><td><strong>High Reasoning (Pro Tier)</strong></td><td>$60.00 LLM + $0.42 embed + $10.25 search</td><td><strong>~$71 / month</strong></td></tr>
+                <tr><td><strong>Low (Flash-Lite)</strong></td><td>$7.50 LLM + $10.67 search/embed</td><td><strong>~$18</strong></td></tr>
+                <tr><td><strong>Mid (3.8 Flash)</strong></td><td>$20.63 LLM + $10.67 search/embed</td><td><strong>~$31</strong></td></tr>
+                <tr><td><strong>High (Pro)</strong></td><td>$60.00 LLM + $10.67 search/embed</td><td><strong>~$71</strong></td></tr>
               </tbody>
             </table>
           </div>
-          <p class="muted-small cost-note">Takeaway: Model API usage is negligible compared to governance, content ownership &amp; staff evaluation time.</p>
         </section>
       </div>
 
-      <section class="cto-card roadmap-card" aria-labelledby="roadmapHeading">
-        <h3 id="roadmapHeading">6. 22-Week Phased Rollout Roadmap (Zero Big-Bang Risk)</h3>
+      <section class="cto-card" aria-labelledby="roadmapHeading">
+        <h3 id="roadmapHeading">22-Week Phased Rollout Roadmap</h3>
         <div id="roadmapGrid" class="roadmap-grid"></div>
       </section>
     </section>
   </main>
 
   <footer class="foot">
-    <p id="footnote">CSIT205 Assessment 2 Prototype · EduConnect Solutions KMS + UOWD Live Corpus (240 pages indexed). Simulated ticket/metric telemetry runs alongside real client-side BM25 search.</p>
+    <p id="footnote">CSIT205 Pilot Prototype &middot; Role-Based Access Active &middot; UOWD Live Corpus (240 pages) linked.</p>
     <p class="foot-links">
       <a href="qr.html">Fullscreen QR Projector</a>
       <span aria-hidden="true">&middot;</span>
@@ -302,36 +294,70 @@
   </footer>
 </div>
 
-<!-- In-Page QR Modal (CSP-safe canvas via qr.js) -->
+<!-- Role-Based Sign-In Modal (RBAC Gate) -->
+<div id="loginModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="loginTitle" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <div>
+        <p class="modal-kicker">ROLE-BASED ACCESS CONTROL (CTO Q6)</p>
+        <h2 id="loginTitle">Sign In to EduConnect</h2>
+      </div>
+      <button id="loginCloseBtn" type="button" class="btn-close" aria-label="Close sign in dialog">&times;</button>
+    </div>
+    <p class="muted-small login-lead">Students only access the Assistant and My Requests. Sign in with a Staff or CTO role to unlock Ticket Queue, Knowledge Governance, and Security Audit Logs.</p>
+
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <label class="field-label" for="loginEmail">University ID or Email</label>
+      <input id="loginEmail" type="text" class="field-input" required placeholder="e.g. staff.lead@educonnect.ac.ae">
+
+      <label class="field-label" for="loginCode">Portal Access Code</label>
+      <input id="loginCode" type="password" class="field-input" required placeholder="Enter demo passcode">
+
+      <p id="loginError" class="login-error" hidden></p>
+      <button type="submit" class="btn-primary full-btn">Sign In</button>
+    </form>
+
+    <div class="quick-demo-box">
+      <p class="quick-demo-label">One-Click Demo Presets (For Presentation):</p>
+      <div class="quick-demo-btns">
+        <button id="fillStudentBtn" type="button" class="btn-outline">Student (Layla A.)</button>
+        <button id="fillStaffBtn" type="button" class="btn-outline">Support Staff</button>
+        <button id="fillCtoBtn" type="button" class="btn-outline">CTO / Admin</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- In-Page QR Modal -->
 <div id="qrModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="qrModalTitle" hidden>
   <div class="modal-card">
     <div class="modal-head">
       <div>
-        <p class="modal-kicker">AUDIENCE LIVE DEMO ACCESS</p>
-        <h2 id="qrModalTitle">Scan to Open EduConnect &amp; UOWD Assistant</h2>
+        <p class="modal-kicker">STUDENT MOBILE ACCESS</p>
+        <h2 id="qrModalTitle">Scan to Open Student Portal</h2>
       </div>
       <button id="qrCloseBtn" type="button" class="btn-close" aria-label="Close QR dialog">&times;</button>
     </div>
     <div class="qr-stage">
-      <canvas id="modalQrCanvas" width="320" height="320" role="img" aria-label="QR code to open this portal"></canvas>
+      <canvas id="modalQrCanvas" width="320" height="320" role="img" aria-label="QR code linking to student portal"></canvas>
     </div>
     <p id="modalQrUrl" class="modal-url"></p>
     <div class="modal-actions">
-      <a href="qr.html" class="btn-primary">Open Fullscreen Projector Mode</a>
+      <a href="qr.html" class="btn-primary">Fullscreen Projector QR</a>
       <button id="qrCloseBtnBottom" type="button" class="btn-outline">Close</button>
     </div>
   </div>
 </div>
 
-<!-- Inline KMS Source Article Inspector Drawer -->
+<!-- KMS Policy Inspector Modal -->
 <div id="articleModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="artModalTitle" hidden>
   <div class="modal-card wide">
     <div class="modal-head">
       <div>
-        <p id="artModalId" class="modal-kicker">KMS ARTICLE</p>
+        <p id="artModalId" class="modal-kicker">OFFICIAL POLICY</p>
         <h2 id="artModalTitle">Policy Title</h2>
       </div>
-      <button id="artCloseBtn" type="button" class="btn-close" aria-label="Close article inspector">&times;</button>
+      <button id="artCloseBtn" type="button" class="btn-close" aria-label="Close policy inspector">&times;</button>
     </div>
     <div id="artModalBody" class="art-modal-body"></div>
   </div>
