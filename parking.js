@@ -182,7 +182,7 @@
       }],
       devices: [
         { id: 'webcam-lotA', lastSeen: nowIso, online: true },
-        { id: 'esp32-lotB', lastSeen: nowIso, online: false }
+        { id: 'esp32-lotB', lastSeen: nowIso, online: true }
       ],
       events: [{
         ts: nowIso,
