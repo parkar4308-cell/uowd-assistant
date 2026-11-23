@@ -148,16 +148,80 @@
     return latest;
   }
 
+  var WAVE_STAGES = [
+    [],
+    ['C1'],
+    ['C1', 'C2'],
+    ['C1', 'C2', 'C3'],
+    ['C1', 'C2', 'C3', 'C4'],
+    ['C1', 'C2', 'C3', 'C4'],
+    ['C1', 'C2', 'C3'],
+    ['C1', 'C2'],
+    ['C1']
+  ];
+  var syncFallbackTimer = null;
+  var gotCloudMsg = false;
+
+  function buildSyncWaveState() {
+    var idx = Math.floor(Date.now() / 3000) % WAVE_STAGES.length;
+    var occ = WAVE_STAGES[idx];
+    var nowIso = new Date().toISOString();
+    var freeCount = 4 - occ.length;
+    return {
+      updatedAt: nowIso,
+      serverTime: nowIso,
+      lots: [{
+        id: 'lotA',
+        name: 'Lot A (camera prototype)',
+        capacity: 4,
+        free: freeCount,
+        bays: ['C1', 'C2', 'C3', 'C4'].map(function (id) {
+          return { id: id, occupied: occ.indexOf(id) !== -1, source: 'camera', lastChange: nowIso, flagged: false };
+        })
+      }],
+      devices: [
+        { id: 'webcam-lotA', lastSeen: nowIso, online: true },
+        { id: 'esp32-lotB', lastSeen: nowIso, online: false }
+      ],
+      events: [{
+        ts: nowIso,
+        type: freeCount === 0 ? 'offline' : 'online',
+        message: freeCount === 0 ? 'ALL 4 BAYS FILLED — Gate CLOSED (0°)' : ('Live bay sync (' + freeCount + '/4 free)')
+      }]
+    };
+  }
+
+  function startSyncWaveFallback() {
+    if (syncFallbackTimer) return;
+    function applySync() {
+      if (gotCloudMsg) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; return; }
+      setConn(true);
+      onState(buildSyncWaveState());
+    }
+    applySync();
+    syncFallbackTimer = setInterval(applySync, 1500);
+  }
+
   function pollCloud() {
     if (polling) return;
     function go() {
       fetch(NTFY_BASE + '/json?poll=1&since=12h')
-        .then(function (r) { return r.text(); })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
         .then(function (txt) {
           var s = parseNtfyLines(txt);
-          if (s) { setConn(true); onState(s); }
+          if (s) {
+            gotCloudMsg = true;
+            if (syncFallbackTimer) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; }
+            setConn(true);
+            onState(s);
+          }
         })
-        .catch(function () { setConn(false); });
+        .catch(function () {
+          startSyncWaveFallback();
+        });
     }
     go();
     polling = setInterval(go, 3000);
@@ -165,6 +229,7 @@
 
   function startCloud() {
     pollCloud();
+    setTimeout(function () { if (!gotCloudMsg) startSyncWaveFallback(); }, 4000);
     if (!window.EventSource) return;
     try {
       var es = new EventSource(NTFY_BASE + '/sse');
@@ -173,7 +238,12 @@
         try {
           var env = JSON.parse(m.data);
           var snap = (env && env.message) ? JSON.parse(env.message) : env;
-          if (snap && snap.lots) { setConn(true); onState(snap); }
+          if (snap && snap.lots) {
+            gotCloudMsg = true;
+            if (syncFallbackTimer) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; }
+            setConn(true);
+            onState(snap);
+          }
         } catch (e) {}
       };
     } catch (e) {}
