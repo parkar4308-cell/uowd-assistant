@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera node - Lot A</title>
+<link rel="stylesheet" href="camera.css">
+</head>
+<body>
+<header class="top">
+  <h1>Camera node <span class="muted">Lot A</span></h1>
+  <nav class="row" aria-label="Page links">
+    <a href="wiring.html">Visual Wiring Photo</a>
+    <a href="template.html">Printable A4 Garage Template</a>
+    <a id="dashLink" href="parking.html">Back to dashboard</a>
+  </nav>
+</header>
+<main>
+  <p class="privacy">Frames stay in this browser. Only free/taken per bay is sent.</p>
+
+  <section class="card">
+    <div class="row">
+      <button id="btnScreen" type="button" class="primary">Capture V380 / App Window</button>
+      <button id="btnStart" type="button">Use Laptop Webcam (Backup)</button>
+      <select id="camSelect" class="cam-select" aria-label="Select camera device" title="Select webcam / video input"></select>
+      <a id="linkSim" href="?sim=1" class="btn">Use simulated feed</a>
+      <button id="btnAutoGrid" type="button">4-Bay Auto-Grid</button>
+      <button id="btnBaseline" type="button">Capture empty baseline</button>
+      <button id="btnReset" type="button" class="ghost">Reset bays</button>
+    </div>
+    <p id="msg" class="msg" role="status"></p>
+    <div class="stage"><canvas id="view" width="640" height="360"></canvas></div>
+    <p id="hint" class="muted small"></p>
+  </section>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Bays</h2>
+      <ul id="bays" class="bays"></ul>
+      <label class="slider">ON threshold <output id="onVal">0.12</output>
+        <input id="onRange" type="range" min="0.02" max="0.6" step="0.01" value="0.12"></label>
+      <label class="slider">OFF threshold <output id="offVal">0.08</output>
+        <input id="offRange" type="range" min="0.01" max="0.5" step="0.01" value="0.08"></label>
+    </section>
+
+    <section class="card">
+      <h2>Sending</h2>
+      <label class="field">Server URL <input id="server" type="text" placeholder="same origin" autocomplete="off"></label>
+      <label class="field">Device id <input id="device" type="text" value="webcam-lotA" autocomplete="off"></label>
+      <label class="field">Token <input id="token" type="text" value="demo-token-lotA" autocomplete="off"></label>
+      <div class="row"><button id="btnSend" type="button">Start sending</button></div>
+      <p id="post" class="muted small">Not sending.</p>
+    </section>
+  </div>
+</main>
+<script src="detect.js"></script>
+<script src="camera.js"></script>
+</body>
+</html>
