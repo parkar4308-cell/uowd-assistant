@@ -112,20 +112,56 @@
 
   // Computes bay occupancy score (0..1).
   // `extra` is optional: { chroma: Float32Array(1024), baseChroma: Float32Array(1024) }.
+  // 3x3 box blur, applied twice: makes the per-pixel compare tolerant of 1-2 px camera
+  // jitter on the high-contrast printed pad (unblurred, every pad edge read as "change").
+  function blur(p) {
+    var a = p;
+    for (var pass = 0; pass < 2; pass++) {
+      var o = new Float32Array(N);
+      for (var y = 0; y < SIZE; y++) for (var x = 0; x < SIZE; x++) {
+        var s = 0, n = 0;
+        for (var dy = -1; dy <= 1; dy++) for (var dx = -1; dx <= 1; dx++) {
+          var yy = y + dy, xx = x + dx;
+          if (yy >= 0 && yy < SIZE && xx >= 0 && xx < SIZE) { s += a[yy * SIZE + xx]; n++; }
+        }
+        o[y * SIZE + x] = s / n;
+      }
+      a = o;
+    }
+    return a;
+  }
+
+  function std(a, m) {
+    var s = 0;
+    for (var i = 0; i < a.length; i++) s += (a[i] - m) * (a[i] - m);
+    return Math.sqrt(s / a.length);
+  }
+
+  function coreMean(a) {
+    var s = 0;
+    for (var i = 0; i < CORE_IDX.length; i++) s += a[CORE_IDX[i]];
+    return s / CORE_IDX.length;
+  }
+
   function bayScore(patch, baselinePatch, baselineEdges, extra) {
-    var m = mean(patch), mb = mean(baselinePatch);
+    var bp = blur(patch), bb = blur(baselinePatch);
+    var m = mean(bp), mb = mean(bb);
+    // Gain-normalise to the baseline's contrast so auto-exposure changes do not
+    // amplify the printed pattern into a false difference.
+    var sp = std(bp, m), sb = std(bb, mb);
+    var gain = sp > 1 ? Math.min(1.5, Math.max(0.67, sb / sp)) : 1;
     var lumaDiff = new Float32Array(N);
     var d = 0;
     for (var i = 0; i < N; i++) {
-      var diff = Math.abs((patch[i] - m) - (baselinePatch[i] - mb));
+      var diff = Math.abs((bp[i] - m) * gain - (bb[i] - mb));
       lumaDiff[i] = diff;
       d += WEIGHTS[i] * diff;
     }
     d /= N;
 
-    var edges = sobelMagnitude(patch), e = 0;
-    for (var k = 0; k < N; k++) e += WEIGHTS[k] * Math.abs(edges[k] - baselineEdges[k]);
-    e /= N;
+    // Edge term: compare edge energy of the bay core, not per-pixel edges (per-pixel
+    // edges on a printed pad flip with any sub-pixel shift).
+    var e = Math.abs(coreMean(sobelMagnitude(patch)) - coreMean(baselineEdges)) * 2;
 
     var lumaFull = clamp01(d / DIFF_FULL);
     var edgeFull = clamp01(e / EDGE_FULL);
@@ -135,8 +171,10 @@
     if (extra && extra.chroma && extra.baseChroma) {
       var cDiff = new Float32Array(N);
       var cd = 0;
+      var bc = blur(extra.chroma), bbc = blur(extra.baseChroma);
+      var cShift = mean(bc) - mean(bbc); // global white-balance drift, not a car
       for (var c = 0; c < N; c++) {
-        var dc = Math.abs(extra.chroma[c] - extra.baseChroma[c]);
+        var dc = Math.abs(bc[c] - bbc[c] - cShift);
         cDiff[c] = dc;
         cd += WEIGHTS[c] * dc;
       }

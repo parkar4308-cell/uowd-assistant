@@ -27,6 +27,7 @@
   var thr = { on: 0.12, off: 0.08 };
   var lastCloudSig = '';
   var lastCloudMs = 0;
+  var calibLeft = 0;
 
   function setSize(w, h) { view.width = src.width = w; view.height = src.height = h; }
   setSize(640, 360);
@@ -64,7 +65,14 @@
   function drawFrame() {
     if (mode === 'sim') drawSim();
     else if (mode === 'cam' && video.videoWidth) {
-      if (src.width !== video.videoWidth) { setSize(video.videoWidth, video.videoHeight); }
+      if (src.width !== video.videoWidth || src.height !== video.videoHeight) {
+        // Resolution changed after the grid/baseline were made: old rects and baselines
+        // no longer line up with the bays, so rebuild the grid and recalibrate.
+        setSize(video.videoWidth, video.videoHeight);
+        sctx.drawImage(video, 0, 0, src.width, src.height);
+        setAutoRectsOnly();
+        captureBaseline();
+      }
       sctx.drawImage(video, 0, 0, src.width, src.height);
     } else { sctx.fillStyle = '#e4e7eb'; sctx.fillRect(0, 0, src.width, src.height); }
     vctx.drawImage(src, 0, 0);
@@ -79,14 +87,11 @@
       var ready = !!baselines[i] || manual[i] !== null;
       var taken = isTaken(i);
       var stroke = !ready ? '#1d5fa8' : taken ? '#c62828' : '#1f8a4c';
-      var fill = !ready ? 'rgba(29, 95, 168, 0.10)' : taken ? 'rgba(198, 40, 40, 0.22)' : 'rgba(31, 138, 76, 0.14)';
-      vctx.fillStyle = fill;
-      vctx.fillRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
       vctx.strokeStyle = stroke;
       vctx.strokeRect(r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
 
-      var pct = scores[i] != null ? (' ' + Math.min(99, Math.round(scores[i] * 100)) + '%') : '';
-      var tag = BAY_IDS[i] + (manual[i] !== null ? ' LOCK' : ready ? (taken ? ' CAR' : ' FREE') + pct : '');
+      var pct = (taken && scores[i] != null) ? (' ' + Math.min(99, Math.round(scores[i] * 100)) + '%') : '';
+      var tag = BAY_IDS[i] + (manual[i] !== null ? ' LOCK' : calibLeft > 0 ? ' CAL' : ready ? (taken ? ' CAR' : ' FREE') + pct : '');
       var tw = vctx.measureText(tag).width + 10;
       vctx.fillStyle = stroke;
       vctx.fillRect(r.x0, r.y0, tw, 20);
@@ -116,19 +121,41 @@
     if (!rects[i]) return false;
     var p = bayPatch(i);
     if (!p) return false;
-    baselines[i] = { patch: p.gray, edges: Detect.sobelMagnitude(p.gray), chroma: p.chroma };
+    baselines[i] = { patch: p.gray, edges: Detect.sobelMagnitude(p.gray), chroma: p.chroma, noise: 0, n: 1 };
     trackers[i].reset();
+    applyBayThreshold(i);
     scores[i] = null;
     return true;
   }
 
+  // Calibration: average more empty frames into the baseline and record how much an
+  // EMPTY bay scores frame-to-frame (camera noise). TAKEN needs score > noise + margin.
+  function refineBaseline(i) {
+    var b = baselines[i], p = bayPatch(i);
+    if (!b || !p) return;
+    var s = Detect.bayScore(p.gray, b.patch, b.edges, { chroma: p.chroma, baseChroma: b.chroma });
+    b.noise = Math.max(b.noise, s);
+    var k = 1 / (b.n + 1);
+    for (var j = 0; j < b.patch.length; j++) {
+      b.patch[j] += (p.gray[j] - b.patch[j]) * k;
+      b.chroma[j] += (p.chroma[j] - b.chroma[j]) * k;
+    }
+    b.edges = Detect.sobelMagnitude(b.patch);
+    b.n++;
+    applyBayThreshold(i);
+  }
+
+  function applyBayThreshold(i) {
+    var nz = baselines[i] ? baselines[i].noise : 0;
+    var on = Math.max(thr.on, nz + 0.12);
+    trackers[i].setThresholds(on, Math.max(thr.off, on - (thr.on - thr.off)));
+  }
+
+  // Default: 4 equal columns spanning the frame (the printed A4 mat filling the view).
   function autoGridRects(w, h) {
-    var out = [], marginX = w * 0.12, gap = w * 0.02;
-    var bw = (w - 2 * marginX - 3 * gap) / 4;
-    var bh = h * 0.48, y0 = h * 0.24;
+    var out = [], bw = w / 4, inset = bw * 0.06;
     for (var i = 0; i < 4; i++) {
-      var x0 = marginX + i * (bw + gap);
-      out.push({ x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x0 + bw), y1: Math.round(y0 + bh) });
+      out.push({ x0: Math.round(i * bw + inset), y0: Math.round(h * 0.08), x1: Math.round((i + 1) * bw - inset), y1: Math.round(h * 0.92) });
     }
     return out;
   }
@@ -165,8 +192,9 @@
     for (var i = 0; i < 4; i++) {
       if (captureOneBaseline(i)) n++;
     }
+    calibLeft = 6; // next 6 detect ticks (~3 s) refine baselines + noise floor
     if (n) {
-      msg('Baseline captured for ' + n + ' bay(s) — live sending active. Drag any box on video to fine-tune position.');
+      msg('Calibrating empty lot for ' + n + ' bay(s) (~3 s, keep the mat empty). Drag a box to fine-tune.');
       setSendingState(true);
       sendTick();
     } else {
@@ -183,6 +211,12 @@
 
   function detectTick() {
     if (mode === 'idle') return;
+    if (calibLeft > 0) {
+      for (var c = 0; c < 4; c++) if (rects[c] && baselines[c]) refineBaseline(c);
+      if (--calibLeft === 0) msg('Empty lot calibrated. Place a car on a pad to test.');
+      renderBays();
+      return;
+    }
     for (var i = 0; i < 4; i++) {
       if (!rects[i] || !baselines[i]) continue;
       var p = bayPatch(i); if (!p) continue;
@@ -372,10 +406,10 @@
       refreshCameras();
       setAutoRectsOnly();
       renderBays();
-      msg('Laptop webcam live! Setting 4-bay auto-grid & capturing empty baseline in 0.4 s...');
+      msg('Laptop webcam live! Letting exposure settle, then calibrating the empty lot in 2 s...');
       setTimeout(function () {
         if (mode === 'cam') captureBaseline();
-      }, 400);
+      }, 2000);
     }).catch(function (err) {
       var n = err && err.name;
       if (n === 'NotAllowedError' || n === 'SecurityError') msg('Camera permission was denied. Allow it in the browser address bar, or use the simulated feed.');
@@ -503,7 +537,7 @@
     if (off >= on) { off = Math.max(0.01, on - 0.01); $('offRange').value = off; }
     thr.on = on; thr.off = off;
     $('onVal').textContent = on.toFixed(2); $('offVal').textContent = off.toFixed(2);
-    trackers.forEach(function (t) { t.setThresholds(on, off); });
+    for (var i = 0; i < 4; i++) applyBayThreshold(i);
   }
   $('onRange').addEventListener('input', onThr);
   $('offRange').addEventListener('input', onThr);
