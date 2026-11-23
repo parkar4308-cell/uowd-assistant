@@ -5,7 +5,7 @@
   var IS_TUNNEL = /(trycloudflare\.com|pinggy\.link|pinggy\.io)$/i.test(location.hostname);
   var IS_PUBLIC = IS_CLOUD || IS_TUNNEL || /[?&]public=1/.test(location.search);
   var NTFY_BASE = 'https://ntfy.sh/uowd-csit214-parking-parkar4308';
-  var state = null, lastRecv = 0, adminKey = null, polling = null;
+  var simulated = false, state = null, lastRecv = 0, adminKey = null, polling = null;
   var $ = function (id) { return document.getElementById(id); };
 
   function el(tag, cls, text) {
@@ -34,8 +34,8 @@
 
   function setConn(on) {
     var p = $('pill');
-    p.textContent = on ? 'Live' : 'Reconnecting';
-    p.className = 'pill ' + (on ? 'pill-on' : 'pill-off');
+    p.textContent = simulated ? 'Simulated' : (on ? 'Live' : 'Reconnecting');
+    p.className = 'pill ' + (on && !simulated ? 'pill-on' : 'pill-off');
   }
 
   function render() {
@@ -102,7 +102,7 @@
       var m = /\(([^)]*)\)/.exec(l.name);
       return (m ? m[1].replace(/\s*prototype$/, ' lot') : l.name) + ' (' + l.capacity + ' bays)';
     });
-    $('sub').textContent = 'Prototype: ' + (parts.join(' + ') || 'no lots');
+    $('sub').textContent = 'Prototype: ' + (parts.join(' + ') || 'no lots') + (simulated ? ' (simulated demo data)' : '');
 
     var dv = $('devices'); dv.textContent = '';
     (state.devices || []).forEach(function (d) {
@@ -127,11 +127,13 @@
   }
 
   function tickAgo() {
-    $('ago').textContent = lastRecv ? 'updated ' + Math.round((Date.now() - lastRecv) / 1000) + 's ago' : 'waiting for data';
+    var age = lastRecv ? Math.round((Date.now() - lastRecv) / 1000) : 0;
+    $('ago').textContent = lastRecv ? (simulated ? 'demo data, not from a camera' : 'updated ' + ago(new Date(lastRecv).toISOString())) : 'waiting for data';
+    if (!simulated && lastRecv && age > 60) { $('pill').textContent = 'Stale'; $('pill').className = 'pill pill-off'; }
     if (state) render();
   }
 
-  function onState(s) { state = s; lastRecv = Date.now(); render(); tickAgo(); }
+  function onState(s) { state = s; var t = Date.parse(s && (s.updatedAt || s.serverTime)); lastRecv = (!simulated && !isNaN(t)) ? t : Date.now(); render(); tickAgo(); }
 
   function parseNtfyLines(txt) {
     var lines = String(txt || '').trim().split('\n');
@@ -187,7 +189,7 @@
       events: [{
         ts: nowIso,
         type: freeCount === 0 ? 'offline' : 'online',
-        message: freeCount === 0 ? 'ALL 4 BAYS FILLED — Gate CLOSED (0°)' : ('Live bay sync (' + freeCount + '/4 free)')
+        message: 'SIMULATED demo data (no camera feed connected): ' + freeCount + '/4 free'
       }]
     };
   }
@@ -196,6 +198,7 @@
     if (syncFallbackTimer) return;
     function applySync() {
       if (gotCloudMsg) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; return; }
+      simulated = true;
       setConn(true);
       onState(buildSyncWaveState());
     }
@@ -214,7 +217,7 @@
         .then(function (txt) {
           var s = parseNtfyLines(txt);
           if (s) {
-            gotCloudMsg = true;
+            gotCloudMsg = true; simulated = false;
             if (syncFallbackTimer) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; }
             setConn(true);
             onState(s);
@@ -225,7 +228,7 @@
         });
     }
     go();
-    polling = setInterval(go, 3000);
+    polling = setInterval(go, 15000);
   }
 
   function startCloud() {
@@ -240,7 +243,7 @@
           var env = JSON.parse(m.data);
           var snap = (env && env.message) ? JSON.parse(env.message) : env;
           if (snap && snap.lots) {
-            gotCloudMsg = true;
+            gotCloudMsg = true; simulated = false;
             if (syncFallbackTimer) { clearInterval(syncFallbackTimer); syncFallbackTimer = null; }
             setConn(true);
             onState(snap);
